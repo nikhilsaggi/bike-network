@@ -10,7 +10,18 @@ import time
 import numpy as np
 import pandas as pd
 
-from . import assignment, calibration, config, demand, lanes, lion, sources, traffic, viz
+from . import (
+    assignment,
+    calibration,
+    candidates,
+    config,
+    demand,
+    lanes,
+    lion,
+    sources,
+    traffic,
+    viz,
+)
 from .network import CostParams, Graph, build_edges, direction_volumes, mark_shared_streets
 
 
@@ -265,6 +276,68 @@ def run_calibration() -> None:
     print(f"Wrote {config.BUILD_DIR / 'calibration.parquet'}")
 
 
+def run_candidates() -> None:
+    """Score every possible single-block upgrade by the stress it would save Citi Bike trips."""
+    edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet")
+    seg = pd.read_parquet(
+        config.BUILD_DIR / "segments.parquet", columns=["segment_id", "traf_dir", "boro"]
+    )
+    graph = Graph.from_edges(edges)
+    od, _ = _network_od(graph)
+    cands = candidates.candidate_edges(edges, seg)
+    print(
+        f"{len(cands):,} candidate directions: "
+        + ", ".join(f"{k} {n:,}" for k, n in cands["kind"].value_counts().items())
+    )
+    runs = []
+    for seed in (0, 1):
+        start = time.time()
+        pairs = candidates.sample_pairs(od, seed=seed)
+        runs.append(candidates.score(graph, cands, pairs))
+        print(f"  Sample {seed}: {len(pairs):,} station pairs scored in {time.time() - start:.0f}s")
+    top = [set(r.nlargest(50, "saved").index) for r in runs]
+    print(f"  The two samples agree on {len(top[0] & top[1])} of their top 50 blocks")
+
+    out = runs[0].assign(
+        saved=(runs[0]["saved"] + runs[1]["saved"]) / 2,
+        trips=(runs[0]["trips"] + runs[1]["trips"]) / 2,
+    )
+    out = out.merge(
+        seg.drop_duplicates("segment_id")[["segment_id", "boro"]], on="segment_id", how="left"
+    )
+    out["saved_per_m"] = out["saved"] / out["length_m"]
+    keep = [
+        "segment_id",
+        "dir",
+        "street",
+        "boro",
+        "kind",
+        "facility",
+        "length_m",
+        "factor",
+        "saved",
+        "trips",
+        "saved_per_m",
+    ]
+    out[keep].to_parquet(config.BUILD_DIR / "candidates.parquet")
+
+    boro = {1: "MN", 2: "BX", 3: "BK", 4: "QN", 5: "SI"}
+    print("Best single blocks (cost-km a year saved, trips a day that would use it):")
+    for r in out.nlargest(15, "saved").itertuples():
+        print(
+            f"  {r.kind:10s} {r.street[:30]:30s} {boro.get(r.boro, '')} {r.dir} {r.length_m:5.0f} m  {r.saved / 1000:9,.0f}  {r.trips / 365:7,.0f}"
+        )
+    print("Best streets, summing their blocks:")
+    streets = out.groupby(["street", "boro", "kind"]).agg(
+        saved=("saved", "sum"), km=("length_m", lambda s: s.sum() / 1000)
+    )
+    for (street, b, kind), r in streets.nlargest(20, "saved").iterrows():
+        print(
+            f"  {kind:10s} {street[:30]:30s} {boro.get(b, '')} {r['km']:5.1f} km  {r['saved'] / 1000:10,.0f}"
+        )
+    print(f"Wrote {config.BUILD_DIR / 'candidates.parquet'}")
+
+
 def main() -> None:
     """Parse arguments and run a command."""
     parser = argparse.ArgumentParser(prog="bike_network")
@@ -274,6 +347,7 @@ def main() -> None:
     sub.add_parser("traffic", help="score the traffic volume model on held-out streets")
     sub.add_parser("assign", help="route a year of Citi Bike trips over the network")
     sub.add_parser("calibrate", help="score a grid of cost knobs against DOT's bike counters")
+    sub.add_parser("candidates", help="rank single-block upgrades by the stress they would save")
     args = parser.parse_args()
     if args.command == "build":
         build()
@@ -285,3 +359,5 @@ def main() -> None:
         run_assignment()
     elif args.command == "calibrate":
         run_calibration()
+    elif args.command == "candidates":
+        run_candidates()
