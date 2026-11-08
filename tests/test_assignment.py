@@ -111,3 +111,15 @@ def test_snap_attaches_to_the_nearest_allowed_node():
     got = demand.snap(stations, nodes, np.array([1, 3])).set_index("station")
     assert got.loc["s", "node"] == 1  # node 2 is nearer but not allowed
     assert got.loc["far", "node"] == -1
+
+
+def test_parallel_assignment_matches_serial():
+    edges = network(SQUARE, LANES, BUSY)
+    g = Graph.from_edges(edges)
+    od = pd.DataFrame(
+        {"o": [1, 1, 2, 3, 4, 5], "d": [3, 5, 4, 1, 2, 3], "trips": [10.0, 4.0, 3.0, 7.0, 2.0, 1.0]}
+    )
+    one = assignment.assign(g, od, batch=1)
+    many = assignment.assign(g, od, batch=1, workers=3)
+    assert np.array_equal(one.edge_trips, many.edge_trips)
+    pd.testing.assert_frame_equal(one.od, many.od)

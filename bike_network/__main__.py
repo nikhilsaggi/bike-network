@@ -2,4 +2,6 @@
 
 from .cli import main
 
-main()
+# Guarded: spawned worker processes (assignment.assign) re-import this module.
+if __name__ == "__main__":
+    main()

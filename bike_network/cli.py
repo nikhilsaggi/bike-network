@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import itertools
+import os
+import time
 
 import numpy as np
 import pandas as pd
 
-from . import assignment, config, demand, lanes, lion, sources, traffic, viz
-from .network import Graph, build_edges, direction_volumes, mark_shared_streets
+from . import assignment, calibration, config, demand, lanes, lion, sources, traffic, viz
+from .network import CostParams, Graph, build_edges, direction_volumes, mark_shared_streets
 
 
 def _summary(seg: pd.DataFrame, fac: pd.DataFrame, edges: pd.DataFrame, graph: Graph) -> None:
@@ -107,15 +110,13 @@ def _trip_km_by_facility(edges: pd.DataFrame, trips: np.ndarray) -> pd.Series:
     return km / km.sum()
 
 
-def run_assignment() -> None:
-    """Route a year of Citi Bike trips and write per-edge trip counts."""
-    edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet")
-    seg = pd.read_parquet(config.BUILD_DIR / "segments.parquet", columns=["segment_id", "boro"])
-    graph = Graph.from_edges(edges)
-    base = Graph.from_edges(assignment.baseline_edges(edges))
+WORKERS = max(1, min(8, os.cpu_count() or 1))
+
+
+def _network_od(graph: Graph) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Citi Bike trips as ``o, d, trips`` on network nodes, and the snapped stations."""
     labels = graph.strong_components()
     main_component = graph.nodes[labels == np.bincount(labels).argmax()]
-
     print(f"Citi Bike {config.DEMAND_YEAR}")
     od, stations = demand.year_demand(config.DEMAND_YEAR)
     nodes = lion.read_nodes(sources.ensure_lion())
@@ -123,17 +124,26 @@ def run_assignment() -> None:
     node_of = stations.set_index("station")["node"]
     od = od.assign(o=od["start_station_id"].map(node_of), d=od["end_station_id"].map(node_of))
     usable = (od["o"] >= 0) & (od["d"] >= 0)
-    total = od["trips"].sum()
     print(
         f"  {len(stations):,} stations, {(stations['node'] < 0).sum()} off the network; "
-        f"{total:,} trips between stations, {od.loc[~usable, 'trips'].sum():,} with an end off it"
+        f"{od['trips'].sum():,} trips between stations, {od.loc[~usable, 'trips'].sum():,} with an end off it"
     )
     od = od[usable]
     od = od.assign(o=od["o"].astype("int64"), d=od["d"].astype("int64"))
+    return od[["o", "d", "trips"]], stations
+
+
+def run_assignment() -> None:
+    """Route a year of Citi Bike trips and write per-edge trip counts."""
+    edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet")
+    seg = pd.read_parquet(config.BUILD_DIR / "segments.parquet", columns=["segment_id", "boro"])
+    graph = Graph.from_edges(edges)
+    base = Graph.from_edges(assignment.baseline_edges(edges))
+    od, stations = _network_od(graph)
 
     print("Routing (safety cost, then shortest legal distance)...")
-    safe = assignment.assign(graph, od[["o", "d", "trips"]])
-    short = assignment.assign(base, od[["o", "d", "trips"]])
+    safe = assignment.assign(graph, od, workers=WORKERS)
+    short = assignment.assign(base, od, workers=WORKERS)
     r, s = safe.od, short.od
     same_node = od.loc[od["o"] == od["d"], "trips"].sum()  # neighbouring stations
     print(
@@ -180,6 +190,81 @@ def run_assignment() -> None:
     print(f"Wrote flows, routes and stations parquet files to {config.BUILD_DIR}")
 
 
+# The knobs calibration searches; everything else stays at config.py's values.
+GRID = {
+    "per_doubling": [0.0, 0.15, 0.3, 0.5, 0.75, 1.0],
+    "painted": [0.0, 0.15, 0.3, 0.5, 0.75, 1.0],
+    "walk_factor": [2.5, 4.0, 6.0],
+}
+
+
+def run_calibration() -> None:
+    """Score a grid of knob settings against DOT's bike counters."""
+    import geopandas as gpd  # noqa: PLC0415 -- only this command needs geometry
+
+    seg = gpd.read_parquet(config.BUILD_DIR / "segments.parquet")
+    fac = lanes.load(sources.ensure_bike_routes())
+    edges = build_edges(seg, fac)
+    od, stations = _network_od(Graph.from_edges(edges))
+    stations = stations[stations["node"] >= 0]
+
+    counters = calibration.locate(calibration.counter_table(config.DEMAND_YEAR), seg, edges)
+    counters["ends"] = calibration.trip_ends_near(counters, stations)
+    where = calibration.crossing_segments(counters, seg, edges)
+
+    base_edges = assignment.baseline_edges(edges)
+    base = assignment.assign(Graph.from_edges(base_edges), od, workers=WORKERS)
+    base_routed = calibration.routed_at(where, base_edges, base.edge_trips)
+    scored = (base_routed >= calibration.MIN_ROUTED_PER_DAY) & (counters["ends"] > 0).to_numpy()
+    counted, ends = counters["per_day"].to_numpy()[scored], counters["ends"].to_numpy()[scored]
+    print(f"Scoring on {scored.sum()} counters: " + ", ".join(counters.loc[scored, "name"]))
+    baseline = calibration.score(base_routed[scored], counted, ends)
+    print(f"  Shortest legal route: spread {baseline['spread']:.3f} (raw {baseline['raw']:.3f})")
+
+    rows = []
+    combos = list(itertools.product(*GRID.values()))
+    for i, (per_doubling, painted, walk) in enumerate(combos, 1):
+        start = time.time()
+        params = CostParams.from_config(
+            per_doubling=per_doubling,
+            exposure={**config.EXPOSURE, "painted": painted},
+            walk_factor=walk,
+        )
+        e = build_edges(seg, fac, params)
+        res = assignment.assign(Graph.from_edges(e), od, workers=WORKERS)
+        routed = calibration.routed_at(where, e, res.edge_trips)
+        s = calibration.score(routed[scored], counted, ends)
+        trip_km = (res.od["trips"] * res.od["length_m"]).sum() / 1000
+        rows.append(
+            {
+                "per_doubling": per_doubling,
+                "painted": painted,
+                "walk_factor": walk,
+                **s,
+                "trip_km": trip_km,
+                **{f"routed_{cid}": v for cid, v in zip(counters["id"], routed, strict=True)},
+            }
+        )
+        print(
+            f"  [{i:3d}/{len(combos)}] doubling {per_doubling:4.2f} painted {painted:4.2f} "
+            f"walk {walk:3.1f}: spread {s['spread']:.3f} ({time.time() - start:.0f}s)",
+            flush=True,
+        )
+    results = pd.DataFrame(rows).sort_values("spread")
+    results.attrs["baseline_spread"] = baseline["spread"]
+    results.to_parquet(config.BUILD_DIR / "calibration.parquet")
+    counters.assign(scored=scored, routed_shortest=base_routed).to_parquet(
+        config.BUILD_DIR / "counters.parquet"
+    )
+    print("Best settings:")
+    for r in results.head(10).itertuples():
+        print(
+            f"  doubling {r.per_doubling:4.2f} painted {r.painted:4.2f} walk {r.walk_factor:3.1f}: "
+            f"spread {r.spread:.3f}  raw {r.raw:.3f}  rank r {r.spearman:.2f}"
+        )
+    print(f"Wrote {config.BUILD_DIR / 'calibration.parquet'}")
+
+
 def main() -> None:
     """Parse arguments and run a command."""
     parser = argparse.ArgumentParser(prog="bike_network")
@@ -188,6 +273,7 @@ def main() -> None:
     sub.add_parser("viz", help="export the built network for the viewer in viz/")
     sub.add_parser("traffic", help="score the traffic volume model on held-out streets")
     sub.add_parser("assign", help="route a year of Citi Bike trips over the network")
+    sub.add_parser("calibrate", help="score a grid of cost knobs against DOT's bike counters")
     args = parser.parse_args()
     if args.command == "build":
         build()
@@ -197,3 +283,5 @@ def main() -> None:
         evaluate_traffic()
     elif args.command == "assign":
         run_assignment()
+    elif args.command == "calibrate":
+        run_calibration()

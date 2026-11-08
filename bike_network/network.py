@@ -26,6 +26,40 @@ MIN_COST = 0.01
 CAR_DIRS = frozenset({"T", "W", "A"})
 
 
+@dataclass(frozen=True)
+class CostParams:
+    """The cost model's tunable numbers; :meth:`from_config` reads ``config.py``.
+
+    Read at call time rather than bound as defaults, so a calibration run (or a
+    test that patches ``config``) prices the network it asked for.
+    """
+
+    traffic_base: float
+    per_doubling: float
+    volume_ref: float
+    per_5_mph: float
+    truck: dict[str, float]
+    exposure: dict[str, float]
+    walk_factor: float
+    step_factor: float
+
+    @classmethod
+    def from_config(cls, **overrides: object) -> CostParams:
+        """Return ``config.py``'s values, with any field replaced by ``overrides``."""
+        values = {
+            "traffic_base": config.TRAFFIC_BASE,
+            "per_doubling": config.TRAFFIC_PER_DOUBLING,
+            "volume_ref": config.VOLUME_REFERENCE,
+            "per_5_mph": config.TRAFFIC_PER_5_MPH,
+            "truck": dict(config.TRUCK_PENALTY),
+            "exposure": dict(config.EXPOSURE),
+            "walk_factor": config.WALK_FACTOR,
+            "step_factor": config.STEP_FACTOR,
+        }
+        values.update(overrides)
+        return cls(**values)  # type: ignore[arg-type]
+
+
 def direction_volumes(seg: pd.DataFrame, volumes: pd.DataFrame | None) -> pd.DataFrame:
     """Add ``vol_fwd`` / ``vol_rev``: vehicles/day a rider shares each direction with.
 
@@ -92,30 +126,31 @@ def mark_shared_streets(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
     return seg
 
 
-def traffic_penalty(seg: pd.DataFrame, volume: pd.Series) -> pd.Series:
+def traffic_penalty(
+    seg: pd.DataFrame, volume: pd.Series, params: CostParams | None = None
+) -> pd.Series:
     """Traffic penalty for one direction of each segment; 0 where no car is allowed."""
-    doublings = np.log2(volume / config.VOLUME_REFERENCE).clip(lower=0)
+    k = params or CostParams.from_config()
+    doublings = np.log2(volume / k.volume_ref).clip(lower=0)
     speed = seg["speed_mph"].fillna(config.DEFAULT_SPEED_MPH)
     over = ((speed - config.DEFAULT_SPEED_MPH) / 5).clip(lower=0)
-    truck = seg["truck_route"].map(config.TRUCK_PENALTY).fillna(0.0)
-    penalty = (
-        config.TRAFFIC_BASE
-        + config.TRAFFIC_PER_DOUBLING * doublings
-        + config.TRAFFIC_PER_5_MPH * over
-        + truck
-    )
+    truck = seg["truck_route"].map(k.truck).fillna(0.0)
+    penalty = k.traffic_base + k.per_doubling * doublings + k.per_5_mph * over + truck
     return penalty.where(seg["traf_dir"].isin(CAR_DIRS), 0.0)
 
 
-def build_edges(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
+def build_edges(
+    seg: pd.DataFrame, fac: pd.DataFrame, params: CostParams | None = None
+) -> pd.DataFrame:
     """Return one row per traversable directed edge.
 
     ``seg`` is :func:`lion.prepare` output, with ``vol_fwd``/``vol_rev`` from
     :func:`direction_volumes` (every street counts as quiet without them), and
     ``fac`` is :func:`lanes.facilities` output. Columns: ``segment_id, dir,
     u, v, length_m, facility, volume, mode, factor, cost`` plus the inputs
-    that set them.
+    that set them. ``params`` defaults to ``config.py``'s cost model.
     """
+    k = params or CostParams.from_config()
     if "vol_fwd" not in seg:
         seg = direction_volumes(seg, None)
     seg = seg.merge(fac, on="segment_id", how="left")
@@ -124,7 +159,7 @@ def build_edges(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
     step = seg["rw_type"] == config.RW_STEP_STREET
     no_ride = step | seg["vehicle_only"] | (seg["rw_type"] == config.RW_HIGHWAY)
     can_walk = ~seg["vehicle_only"] & (seg["rw_type"] != config.RW_HIGHWAY)
-    walk_factor = np.where(step, config.STEP_FACTOR, config.WALK_FACTOR)
+    walk_factor = np.where(step, k.step_factor, k.walk_factor)
 
     parts = []
     for direction, u, v, with_traffic in (
@@ -133,11 +168,11 @@ def build_edges(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
     ):
         facility = seg[direction]
         volume = seg[f"vol_{direction}"]
-        penalty = traffic_penalty(seg, volume)
+        penalty = traffic_penalty(seg, volume, k)
         has_lane = facility != "none"
         cars_allow = seg["traf_dir"].isin(with_traffic) & ~no_ride
         can_ride = cars_allow | has_lane
-        exposure = facility.map(config.EXPOSURE)
+        exposure = facility.map(k.exposure)
         ride_factor = 1.0 + exposure * penalty
         ride = can_ride & (~can_walk | (ride_factor <= walk_factor))
         part = pd.DataFrame(
