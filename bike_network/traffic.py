@@ -33,7 +33,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import GroupKFold
 
 from . import config
-from .network import CAR_DIRS, traffic_penalty
+from .network import CAR_DIRS
 from .sources import USER_AGENT
 
 if TYPE_CHECKING:
@@ -51,6 +51,28 @@ MIN_ALIGNMENT = 0.3
 # A full day is 96 fifteen-minute intervals; daylight-saving days have 92 or 100.
 FULL_DAY = (92, 100)
 SNOW_CODE = {"C": 1, "S": 2, "V": 3, "H": 4}
+
+# The lane-count rule the volume estimate replaced, kept as the baseline that
+# :func:`evaluate` holds the model against: 0.2, plus 0.4 per travel lane per
+# direction beyond the first (at most 3), plus the speed and truck terms.
+LANE_RULE = {"base": 0.2, "per_lane": 0.4, "max_lanes": 3, "per_5_mph": 0.15}
+LANE_RULE_TRUCK = {"1": 0.2, "2": 0.3, "3": 0.5}
+DEFAULT_LANES_PER_DIR = 1
+
+
+def lane_rule_penalty(seg: pd.DataFrame) -> pd.Series:
+    """Return the pre-volume traffic penalty, from lane count, speed limit and truck route."""
+    two_way = seg["traf_dir"] == "T"
+    lanes = seg["travel_lanes"].where(seg["travel_lanes"] > 0)
+    per_dir = np.ceil(lanes / np.where(two_way, 2, 1)).fillna(DEFAULT_LANES_PER_DIR)
+    extra = (per_dir - 1).clip(0, LANE_RULE["max_lanes"])
+    speed = seg["speed_mph"].fillna(config.DEFAULT_SPEED_MPH)
+    over = ((speed - config.DEFAULT_SPEED_MPH) / 5).clip(lower=0)
+    truck = seg["truck_route"].map(LANE_RULE_TRUCK).fillna(0.0)
+    penalty = (
+        LANE_RULE["base"] + LANE_RULE["per_lane"] * extra + LANE_RULE["per_5_mph"] * over + truck
+    )
+    return penalty.where(seg["traf_dir"].isin(CAR_DIRS), 0.0)
 
 
 def _fetch_page(offset: int) -> list[dict[str, Any]]:
@@ -156,7 +178,7 @@ def car_edges(seg: pd.DataFrame) -> pd.DataFrame:
             "snow": df["snow_priority"].map(SNOW_CODE).fillna(0).astype(int),
             "carto": df["carto_level"].map({10: 3, 20: 2, 30: 1}).fillna(0).astype(int),
             "bridge": (df["rw_type"] == 3).astype(int),
-            "rule_penalty": traffic_penalty(df).to_numpy(),
+            "rule_penalty": lane_rule_penalty(df).to_numpy(),
         }
     )
     return feats[df["traf_dir"].isin(CAR_DIRS).to_numpy()]
@@ -212,9 +234,7 @@ def evaluate(train: pd.DataFrame, folds: int = 5) -> list[Score]:
     """
     y = np.log(train["volume"].to_numpy())
     groups = (train["boro"].astype(str) + "|" + train["street"]).to_numpy()
-    lanes_only = (
-        train["lanes_dir"].fillna(config.DEFAULT_LANES_PER_DIR).clip(1, 4).to_numpy()[:, None]
-    )
+    lanes_only = train["lanes_dir"].fillna(DEFAULT_LANES_PER_DIR).clip(1, 4).to_numpy()[:, None]
     lanes_onehot = (lanes_only == np.arange(1, 5)).astype(float)
     rule = train["rule_penalty"].to_numpy()[:, None]
     x = train[FEATURES].to_numpy(dtype=float)
@@ -227,7 +247,7 @@ def evaluate(train: pd.DataFrame, folds: int = 5) -> list[Score]:
         preds["model"][test] = _model().fit(x[fit], y[fit]).predict(x[test])
     return [
         _score("Lanes per direction alone", y, preds["lanes"]),
-        _score("Today's rule-based penalty", y, preds["rule"]),
+        _score("Lane-count rule (replaced)", y, preds["rule"]),
         _score("Volume model (all features)", y, preds["model"]),
     ]
 
@@ -250,3 +270,10 @@ def training_set(seg: gpd.GeoDataFrame, rows: pd.DataFrame) -> tuple[pd.DataFram
     counts = orient(daily_volumes(rows), seg)
     train = edges.merge(counts, on=["segment_id", "dir"], how="inner")
     return edges, train[train["volume"] > 0]
+
+
+def volumes(seg: gpd.GeoDataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Download counts if needed; return (estimate for every car direction, counted rows)."""
+    rows = pd.read_json(ensure_counts(), dtype=False)
+    edges, train = training_set(seg, rows)
+    return estimate(edges, train), train

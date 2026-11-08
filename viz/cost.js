@@ -17,15 +17,15 @@
     return p & 3; // 0 no cars, 1 two-way, 2 with geometry (W), 3 against (A)
   }
 
-  function trafficPenalty(p, lanes, speed, k) {
-    const traf = trafDir(p);
-    if (traf === 0) return 0;
-    const perDir = lanes > 0 ? Math.ceil(lanes / (traf === 1 ? 2 : 1)) : k.default_lanes;
-    const extra = Math.min(Math.max(perDir - 1, 0), k.max_extra_lanes);
+  // vol: vehicles/day the rider shares this direction with (oncoming, in a
+  // contraflow lane), already resolved per direction by the export.
+  function trafficPenalty(p, speed, vol, k) {
+    if (trafDir(p) === 0) return 0;
+    const doublings = Math.max(Math.log2(vol / k.volume_ref), 0);
     const mph = speed > 0 ? speed : k.default_speed;
     const over = Math.max((mph - k.default_speed) / 5, 0);
     const truck = [0, k.truck_limited, k.truck_local, k.truck_through][(p >> 2) & 3];
-    return k.traffic_base + k.per_extra_lane * extra + k.per_5_mph * over + truck;
+    return k.traffic_base + k.per_doubling * doublings + k.per_5_mph * over + truck;
   }
 
   function exposure(fac, k) {
@@ -36,8 +36,9 @@
   }
 
   // One direction of one segment: dir 0 runs along the stored geometry (LION
-  // FROM -> TO), dir 1 against it. Returns null when nothing may use it.
-  function edge(p, lanes, speed, dir, k) {
+  // FROM -> TO), dir 1 against it; vf / vr are each direction's volume.
+  // Returns null when nothing may use it.
+  function edge(p, speed, vf, vr, dir, k) {
     const fac = dir === 0 ? (p >> 7) & 3 : (p >> 9) & 3;
     const traf = trafDir(p);
     const step = (p & BIT_STEP) !== 0;
@@ -49,7 +50,8 @@
     const withTraffic = traf === 1 || traf === (dir === 0 ? 2 : 3);
     const canRide = (withTraffic && !noRide) || fac !== 0;
     if (!canRide && !canWalk) return null;
-    const penalty = trafficPenalty(p, lanes, speed, k);
+    const volume = dir === 0 ? vf : vr;
+    const penalty = trafficPenalty(p, speed, volume, k);
     const rideFactor = 1 + exposure(fac, k) * penalty;
     const ride = canRide && (!canWalk || rideFactor <= walkFactor);
     return {
@@ -57,6 +59,7 @@
       canRide: canRide,
       facility: fac,
       penalty: penalty,
+      volume: volume,
       rideFactor: rideFactor,
       walkFactor: walkFactor,
       factor: ride ? rideFactor : walkFactor,

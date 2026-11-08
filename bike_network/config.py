@@ -90,14 +90,15 @@ FACILITY_CLASS = {
 }
 FACILITY_RANK = {"separated": 3, "painted": 2, "shared": 1, "none": 0}
 
-# Traffic penalty for a street open to cars, built from what LION records on
-# every segment. Measured volumes replace part of this in a later step.
+# Traffic penalty for a street open to cars. Volume is vehicles per day in the
+# rider's direction (oncoming, in a contraflow lane), estimated for every street
+# by bike_network.traffic from DOT's counts. Each doubling above a quiet street
+# adds the same amount, so 3,200 -> 6,400 weighs as much as 6,400 -> 12,800.
 TRAFFIC_BASE = 0.2  # any street with cars on it
-TRAFFIC_PER_EXTRA_LANE = 0.4  # each travel lane per direction beyond the first
-TRAFFIC_MAX_EXTRA_LANES = 3
+TRAFFIC_PER_DOUBLING = 0.3
+VOLUME_REFERENCE = 1600  # vehicles/day one way: the median one-lane street's estimate
 TRAFFIC_PER_5_MPH = 0.15  # each 5 mph of posted speed above the default
 DEFAULT_SPEED_MPH = 25  # NYC's citywide default limit
-DEFAULT_LANES_PER_DIR = 1
 # TRUCK_ROUTE_TYPE: 1 limited local, 2 local, 3 through.
 TRUCK_PENALTY = {"1": 0.2, "2": 0.3, "3": 0.5}
 

@@ -10,7 +10,7 @@ from conftest import dot_row, lion_row
 from shapely.geometry import MultiLineString
 
 from bike_network import config, lanes, lion, viz
-from bike_network.network import build_edges
+from bike_network.network import build_edges, direction_volumes
 
 NODE = shutil.which("node")
 
@@ -38,10 +38,28 @@ DOT = [
 ]
 
 
+# Estimated vehicles/day per car direction; segments 4 and 11 have none and
+# fall back (4 is one-way, so its contraflow lane borrows the car direction).
+VOLUMES = {
+    (1, "fwd"): 900,
+    (1, "rev"): 2500,
+    (2, "fwd"): 4000,
+    (3, "rev"): 30000,
+    (4, "fwd"): 6000,
+    (5, "fwd"): 20000,
+    (5, "rev"): 18000,
+    (12, "fwd"): 7000,
+}
+
+
 def segments():
     seg = lion.prepare(pd.DataFrame(LION))
     fac = lanes.facilities(pd.DataFrame(DOT))
-    return seg, fac
+    est = pd.DataFrame(
+        [(f"{s:07d}", d, v) for (s, d), v in VOLUMES.items()],
+        columns=["segment_id", "dir", "volume_est"],
+    )
+    return direction_volumes(seg, est), fac
 
 
 def run_cost_js(attrs, knobs):
@@ -51,15 +69,16 @@ const input = JSON.parse(require("fs").readFileSync(0, "utf8"));
 const out = [];
 for (let i = 0; i < input.p.length; i++)
   for (const dir of [0, 1]) {
-    const r = api.edge(input.p[i], input.lanes[i], input.speed[i], dir, input.knobs);
+    const r = api.edge(input.p[i], input.speed[i], input.vf[i], input.vr[i], dir, input.knobs);
     out.push(r === null ? null : [r.ride, r.factor]);
   }
 console.log(JSON.stringify(out));
 """
     payload = {
         "p": attrs["p"].tolist(),
-        "lanes": attrs["lanes"].tolist(),
         "speed": attrs["speed"].tolist(),
+        "vf": attrs["vf"].tolist(),
+        "vr": attrs["vr"].tolist(),
         "knobs": knobs,
     }
     res = subprocess.run(  # noqa: S603 -- node on a file in this repo

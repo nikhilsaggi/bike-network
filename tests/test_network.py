@@ -5,15 +5,25 @@ from conftest import dot_row, lion_row
 from scipy.sparse import csgraph
 
 from bike_network import config, lanes, lion
-from bike_network.network import Graph, build_edges, traffic_penalty
+from bike_network.network import Graph, build_edges, direction_volumes, traffic_penalty
 
 
-def build(lion_rows, dot_rows=()):
+def build(lion_rows, dot_rows=(), volumes=None):
+    """``volumes`` maps (segment, "fwd"/"rev") to vehicles/day; unlisted streets are quiet."""
     seg = lion.prepare(pd.DataFrame(lion_rows))
     fac = lanes.facilities(
         pd.DataFrame(list(dot_rows), columns=["segmentid", "status", "ft_facilit", "tf_facilit"])
     )
+    if volumes:
+        est = pd.DataFrame(
+            [(f"{s:07d}", d, v) for (s, d), v in volumes.items()],
+            columns=["segment_id", "dir", "volume_est"],
+        )
+        seg = direction_volumes(seg, est)
     return build_edges(seg, fac)
+
+
+REF = config.VOLUME_REFERENCE
 
 
 def edge(edges, seg, direction):
@@ -22,7 +32,7 @@ def edge(edges, seg, direction):
     return rows.iloc[0]
 
 
-QUIET = 1 + config.TRAFFIC_BASE  # a two-lane two-way 25 mph street, no lane
+QUIET = 1 + config.TRAFFIC_BASE  # a quiet 25 mph street with cars and no lane
 
 
 def test_two_way_street_rides_both_ways():
@@ -52,8 +62,12 @@ def test_contraflow_lane_rides_against_traffic():
 
 
 def test_lane_counts_only_in_its_own_direction():
-    e = build([lion_row(1, 1, 2, "T", Number_Travel_Lanes=" 4")], [dot_row(1, ft="Conventional")])
-    penalty = config.TRAFFIC_BASE + config.TRAFFIC_PER_EXTRA_LANE  # 2 lanes each way
+    e = build(
+        [lion_row(1, 1, 2, "T", Number_Travel_Lanes=" 4")],
+        [dot_row(1, ft="Conventional")],
+        {(1, "fwd"): 4 * REF, (1, "rev"): 4 * REF},
+    )
+    penalty = config.TRAFFIC_BASE + 2 * config.TRAFFIC_PER_DOUBLING  # two doublings
     assert edge(e, 1, "fwd")["factor"] == pytest.approx(1 + config.EXPOSURE["painted"] * penalty)
     assert edge(e, 1, "rev")["factor"] == pytest.approx(1 + penalty)
 
@@ -88,11 +102,11 @@ def test_step_street_is_carried():
 
 
 def test_riding_a_terrible_street_loses_to_walking(monkeypatch):
-    # With the shipped factors no street outscores walking; the mechanism still
-    # has to pick the cheaper of the two when one does.
     monkeypatch.setattr(config, "WALK_FACTOR", 1.5)
-    busy = {"Number_Travel_Lanes": " 6", "TRUCK_ROUTE_TYPE": "3"}
-    e = build([lion_row(1, 1, 2, "T", **busy), lion_row(2, 2, 3, "T")])
+    e = build(
+        [lion_row(1, 1, 2, "T", TRUCK_ROUTE_TYPE="3"), lion_row(2, 2, 3, "T")],
+        volumes={(1, "fwd"): 16 * REF, (1, "rev"): 16 * REF},
+    )
     assert set(e[e["segment_id"] == "0000001"]["mode"]) == {"walk"}
     assert set(e[e["segment_id"] == "0000002"]["mode"]) == {"ride"}
 
@@ -100,17 +114,31 @@ def test_riding_a_terrible_street_loses_to_walking(monkeypatch):
 def test_traffic_penalty_terms():
     seg = pd.DataFrame(
         {
-            "traf_dir": ["T", "W", "T", "P"],
-            "travel_lanes": [6.0, np.nan, 2.0, 2.0],
-            "speed_mph": [np.nan, 35.0, 25.0, 25.0],
-            "truck_route": ["", "", "3", ""],
+            "traf_dir": ["T", "W", "T", "P", "T"],
+            "speed_mph": [np.nan, 35.0, 25.0, 25.0, 25.0],
+            "truck_route": ["", "", "3", "", ""],
         }
     )
-    got = traffic_penalty(seg).tolist()
-    assert got[0] == pytest.approx(config.TRAFFIC_BASE + 2 * config.TRAFFIC_PER_EXTRA_LANE)
+    volume = pd.Series([4.0 * REF, REF, REF, 8.0 * REF, REF / 4])
+    got = traffic_penalty(seg, volume).tolist()
+    assert got[0] == pytest.approx(config.TRAFFIC_BASE + 2 * config.TRAFFIC_PER_DOUBLING)
     assert got[1] == pytest.approx(config.TRAFFIC_BASE + 2 * config.TRAFFIC_PER_5_MPH)
     assert got[2] == pytest.approx(config.TRAFFIC_BASE + config.TRUCK_PENALTY["3"])
-    assert got[3] == 0.0
+    assert got[3] == 0.0  # no cars on a path, whatever the volume says
+    assert got[4] == pytest.approx(config.TRAFFIC_BASE)  # quieter than quiet is no bonus
+
+
+def test_contraflow_rider_shares_the_oncoming_volume():
+    e = build(
+        [lion_row(1, 1, 2, "W"), lion_row(2, 2, 3, "T")],
+        [dot_row(1, tf="Conventional")],
+        {(1, "fwd"): 8 * REF, (2, "fwd"): 2 * REF},
+    )
+    oncoming = config.TRAFFIC_BASE + 3 * config.TRAFFIC_PER_DOUBLING
+    assert edge(e, 1, "rev")["volume"] == 8 * REF
+    assert edge(e, 1, "rev")["factor"] == pytest.approx(1 + config.EXPOSURE["painted"] * oncoming)
+    # A two-way street missing one direction's estimate borrows the other's.
+    assert edge(e, 2, "rev")["volume"] == 2 * REF
 
 
 def test_prepare_filters_and_dedupes():
@@ -144,14 +172,14 @@ def test_graph_keeps_cheapest_parallel_edge_and_maps_back():
 
 def test_route_detours_onto_a_protected_lane():
     # 1 -> 2 directly on a busy avenue, or 1 -> 3 -> 2 on a protected path 20% longer.
-    busy = {"Number_Travel_Lanes": " 6", "TRUCK_ROUTE_TYPE": "3"}
     e = build(
         [
-            lion_row(1, 1, 2, "T", **busy),
+            lion_row(1, 1, 2, "T", TRUCK_ROUTE_TYPE="3"),
             lion_row(2, 1, 3, "T", feet=600 / 0.3048),
             lion_row(3, 3, 2, "T", feet=600 / 0.3048),
         ],
         [dot_row(2, "Protected", "Protected"), dot_row(3, "Protected", "Protected")],
+        {(1, "fwd"): 16 * REF, (1, "rev"): 16 * REF},
     )
     g = Graph.from_edges(e)
     src, dst = g.node_index(np.array([1, 2]))

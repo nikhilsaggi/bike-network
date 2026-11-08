@@ -43,8 +43,8 @@ def knobs() -> dict[str, Any]:
         "exposure_painted": config.EXPOSURE["painted"],
         "exposure_shared": config.EXPOSURE["shared"],
         "traffic_base": config.TRAFFIC_BASE,
-        "per_extra_lane": config.TRAFFIC_PER_EXTRA_LANE,
-        "max_extra_lanes": config.TRAFFIC_MAX_EXTRA_LANES,
+        "per_doubling": config.TRAFFIC_PER_DOUBLING,
+        "volume_ref": config.VOLUME_REFERENCE,
         "per_5_mph": config.TRAFFIC_PER_5_MPH,
         "truck_limited": config.TRUCK_PENALTY["1"],
         "truck_local": config.TRUCK_PENALTY["2"],
@@ -52,12 +52,14 @@ def knobs() -> dict[str, Any]:
         "walk_factor": config.WALK_FACTOR,
         "step_factor": config.STEP_FACTOR,
         "default_speed": config.DEFAULT_SPEED_MPH,
-        "default_lanes": config.DEFAULT_LANES_PER_DIR,
     }
 
 
 def pack_attributes(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
-    """Per segment: the packed flags, lanes, speed and length the viewer needs."""
+    """Per segment: packed flags, lanes, speed, length and each direction's volume.
+
+    ``seg`` must carry ``vol_fwd``/``vol_rev`` (:func:`network.direction_volumes`).
+    """
     seg = seg.merge(fac, on="segment_id", how="left")
     traf = seg["traf_dir"].map(TRAF_CODE).fillna(0).to_numpy(dtype=np.int64)
     truck = pd.to_numeric(seg["truck_route"], errors="coerce").fillna(0).to_numpy(dtype=np.int64)
@@ -79,6 +81,8 @@ def pack_attributes(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
             "lanes": seg["travel_lanes"].fillna(0).astype(int),
             "speed": seg["speed_mph"].fillna(0).astype(int),
             "len": seg["length_m"].round(1),
+            "vf": seg["vol_fwd"].round().astype(int),
+            "vr": seg["vol_rev"].round().astype(int),
         },
         index=seg.index,
     )
@@ -95,8 +99,17 @@ def _morton(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     return spread(x) | (spread(y) << np.uint64(1))
 
 
-def export(seg: gpd.GeoDataFrame, fac: pd.DataFrame, edges: pd.DataFrame) -> dict[str, Any]:
-    """Build the viewer's JSON payload."""
+def export(
+    seg: gpd.GeoDataFrame,
+    fac: pd.DataFrame,
+    edges: pd.DataFrame,
+    counted: pd.DataFrame | None = None,
+) -> dict[str, Any]:
+    """Build the viewer's JSON payload.
+
+    ``counted`` (``segment_id, dir, volume_counted``) adds DOT's measured
+    volumes where they exist, for display.
+    """
     seg = seg[seg["segment_id"].isin(edges["segment_id"])].reset_index(drop=True)
     attrs = pack_attributes(seg, fac)
     geom = shapely.get_geometry(seg.geometry.simplify(SIMPLIFY_FT).to_crs(4326).values, 0)
@@ -119,6 +132,18 @@ def export(seg: gpd.GeoDataFrame, fac: pd.DataFrame, edges: pd.DataFrame) -> dic
         prev = pts[0]
 
     names, name_idx = np.unique(seg["street"].to_numpy(), return_inverse=True)
+    rank = np.empty(len(order), dtype=np.int64)
+    rank[order] = np.arange(len(order))
+    measured: list[list[int]] = []
+    if counted is not None:
+        pos = pd.Series(rank, index=seg["segment_id"])
+        pos = pos[~pos.index.duplicated()]
+        c = counted.dropna(subset=["volume_counted"])
+        c = c[c["segment_id"].isin(pos.index)]
+        measured = [
+            [int(pos[s]), 0 if d == "fwd" else 1, round(v)]
+            for s, d, v in zip(c["segment_id"], c["dir"], c["volume_counted"], strict=True)
+        ]
     return {
         "lion_release": config.LION_RELEASE,
         "origin": [int(origin[0]), int(origin[1])],
@@ -133,6 +158,9 @@ def export(seg: gpd.GeoDataFrame, fac: pd.DataFrame, edges: pd.DataFrame) -> dic
         "lanes": attrs["lanes"].to_numpy()[order].tolist(),
         "speed": attrs["speed"].to_numpy()[order].tolist(),
         "len": attrs["len"].to_numpy()[order].tolist(),
+        "vf": attrs["vf"].to_numpy()[order].tolist(),
+        "vr": attrs["vr"].to_numpy()[order].tolist(),
+        "counted": measured,
     }
 
 

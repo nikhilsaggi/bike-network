@@ -49,10 +49,31 @@ is walked on the sidewalk, whichever is cheaper:
 | Painted (conventional, buffered, curbside) | 0.3 |
 | Shared, signed route, wide parking lane, none | 1 |
 
-`traffic_penalty` is 0 where no car may go, otherwise 0.2, plus 0.4 per
-travel lane per direction beyond the first (up to 3), plus 0.15 per 5 mph
-over 25, plus 0.2 / 0.3 / 0.5 for a limited-local / local / through truck
-route. All of these numbers live in `bike_network/config.py`.
+`traffic_penalty` is 0 where no car may go. Otherwise it is 0.2, plus 0.3
+for each doubling of traffic above a quiet street's 1,600 vehicles a day,
+plus 0.15 per 5 mph over 25, plus 0.2 / 0.3 / 0.5 for a limited-local /
+local / through truck route. Traffic is the volume in the rider's direction
+(the oncoming stream, in a contraflow lane). All of these numbers live in
+`bike_network/config.py`.
+
+## Traffic volume
+
+DOT has counted traffic on under 1% of car directions, so `build` estimates
+the rest: a gradient-boosted model of daily volume per direction, trained on
+DOT's [Automated Traffic Volume Counts](https://data.cityofnewyork.us/Transportation/Automated-Traffic-Volume-Counts/7ym2-wayt)
+since 2010 and fed what LION records on every street (width, travel lanes,
+one-way, truck route, snow-plough priority, borough, display level). Each
+count's compass direction is matched to the segment's own bearing.
+`python -m bike_network traffic` scores it on streets held out of the fit:
+
+| Predictor of log daily volume | R² | Rank correlation | Typical error |
+|---|---|---|---|
+| Lanes per direction alone | 0.32 | 0.55 | 1.62x |
+| The lane-count rule it replaced | 0.39 | 0.67 | 1.52x |
+| Volume model | 0.47 | 0.73 | 1.47x |
+
+The counted streets skew busy and the median count dates from 2016, so the
+estimate ranks streets better than it measures any one of them.
 
 ## Known gaps
 

@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from . import config, lanes, lion, sources, traffic, viz
-from .network import Graph, build_edges
+from .network import Graph, build_edges, direction_volumes
 
 
 def _summary(seg: pd.DataFrame, fac: pd.DataFrame, edges: pd.DataFrame, graph: Graph) -> None:
@@ -44,6 +44,13 @@ def build() -> None:
     seg = lion.read(gdb)
     print(f"  {len(seg):,} segments")
     fac = lanes.load(routes)
+    print("Traffic")
+    est, counted = traffic.volumes(seg)
+    print(
+        f"  Volume model trained on {len(counted):,} counted directions; "
+        f"estimates for {len(est):,} car directions"
+    )
+    seg = direction_volumes(seg, est)
     edges = build_edges(seg, fac)
     graph = Graph.from_edges(edges)
     _summary(seg, fac, edges, graph)
@@ -51,7 +58,8 @@ def build() -> None:
     config.BUILD_DIR.mkdir(parents=True, exist_ok=True)
     seg.to_parquet(config.BUILD_DIR / "segments.parquet")
     edges.to_parquet(config.BUILD_DIR / "edges.parquet")
-    print(f"Wrote {config.BUILD_DIR / 'segments.parquet'} and edges.parquet")
+    est.to_parquet(config.BUILD_DIR / "traffic.parquet")
+    print(f"Wrote segments, edges and traffic parquet files to {config.BUILD_DIR}")
 
 
 def build_viz() -> None:
@@ -61,13 +69,14 @@ def build_viz() -> None:
     seg = gpd.read_parquet(config.BUILD_DIR / "segments.parquet")
     edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet", columns=["segment_id"])
     fac = lanes.load(sources.ensure_bike_routes())
-    payload = viz.export(seg, fac, edges)
+    counted = pd.read_parquet(config.BUILD_DIR / "traffic.parquet")
+    payload = viz.export(seg, fac, edges, counted)
     viz.write(payload)
     print(f"Wrote {config.BUILD_DIR / 'viz'}: {payload['n']:,} segments")
 
 
-def build_traffic() -> None:
-    """Fit and evaluate the traffic volume model, and write per-edge estimates."""
+def evaluate_traffic() -> None:
+    """Score the traffic volume model against the predictors it replaced."""
     import geopandas as gpd  # noqa: PLC0415 -- only this command needs geometry
 
     seg = gpd.read_parquet(config.BUILD_DIR / "segments.parquet")
@@ -83,9 +92,6 @@ def build_traffic() -> None:
     print(f"    {'':30s} {'R2':>6s} {'rank r':>7s} {'typical error':>14s}")
     for s in traffic.evaluate(train):
         print(f"    {s.name:30s} {s.r2:6.2f} {s.spearman:7.2f} {s.median_factor:13.2f}x")
-    est = traffic.estimate(edges, train)
-    est.to_parquet(config.BUILD_DIR / "traffic.parquet")
-    print(f"Wrote {config.BUILD_DIR / 'traffic.parquet'}")
 
 
 def main() -> None:
@@ -94,11 +100,11 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("build", help="build the costed street network")
     sub.add_parser("viz", help="export the built network for the viewer in viz/")
-    sub.add_parser("traffic", help="fit and evaluate the traffic volume model")
+    sub.add_parser("traffic", help="score the traffic volume model on held-out streets")
     args = parser.parse_args()
     if args.command == "build":
         build()
     elif args.command == "viz":
         build_viz()
     elif args.command == "traffic":
-        build_traffic()
+        evaluate_traffic()

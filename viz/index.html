@@ -199,8 +199,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   const KNOBS = [
     { group: "Traffic penalty, on any street with cars" },
     { key: "traffic_base", label: "Any street with cars", min: 0, max: 1, step: 0.05 },
-    { key: "per_extra_lane", label: "Each travel lane per direction beyond the first", min: 0, max: 1, step: 0.05 },
-    { key: "max_extra_lanes", label: "Extra lanes counted, at most", min: 0, max: 5, step: 1, fmt: (v) => String(v) },
+    { key: "per_doubling", label: "Each doubling of traffic above a quiet street", min: 0, max: 1, step: 0.05 },
+    { key: "volume_ref", label: "A quiet street's traffic, vehicles a day one way", min: 400, max: 6000, step: 100, fmt: (v) => Math.round(v).toLocaleString() },
     { key: "per_5_mph", label: "Each 5 mph over the 25 mph default", min: 0, max: 0.5, step: 0.05 },
     { key: "truck_limited", label: "Truck route, limited local", min: 0, max: 1.5, step: 0.05 },
     { key: "truck_local", label: "Truck route, local", min: 0, max: 1.5, step: 0.05 },
@@ -214,7 +214,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   ];
   const fmt2 = (v) => v.toFixed(2);
 
-  let data, defaults, k, edges, segPaths;
+  let data, defaults, k, edges, segPaths, counted;
   let factor, kind, colors, overlay = [];
   let version = 0, deckgl, selected = null;
   let palette;
@@ -288,7 +288,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     edges = [];
     for (let i = 0; i < n; i++) {
       for (let dir = 0; dir < 2; dir++) {
-        if (BikeCost.edge(d.p[i], d.lanes[i], d.speed[i], dir, k) === null) continue;
+        if (BikeCost.edge(d.p[i], d.speed[i], d.vf[i], d.vr[i], dir, k) === null) continue;
         let path = segPaths[i];
         if (dir === 1) {
           const r = new Float64Array(path.length), m = path.length / 2;
@@ -309,7 +309,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     overlay = [];
     for (let i = 0; i < m; i++) {
       const e = edges[i], s = e.s;
-      const r = BikeCost.edge(data.p[s], data.lanes[s], data.speed[s], e.d, k);
+      const r = BikeCost.edge(data.p[s], data.speed[s], data.vf[s], data.vr[s], e.d, k);
       const len = data.len[s];
       let rgb;
       if (r === null) { kind[i] = 2; factor[i] = 0; rgb = palette.faint; }
@@ -442,10 +442,19 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   function showCard(e) {
     selected = e;
     const s = e.s, p = data.p[s];
-    const r = BikeCost.edge(p, data.lanes[s], data.speed[s], e.d, k);
+    const r = BikeCost.edge(p, data.speed[s], data.vf[s], data.vr[s], e.d, k);
     const traf = p & 3;
     const cars = traf === 0 ? "None" : traf === 1 ? "Two-way" : (traf === (e.d === 0 ? 2 : 3) ? "One-way, with you" : "One-way, against you");
     const lanes = data.lanes[s], speed = data.speed[s], len = data.len[s];
+    let traffic = "";
+    if (traf !== 0) {
+      const oncoming = traf !== 1 && traf !== (e.d === 0 ? 2 : 3);
+      const label = oncoming ? "Oncoming traffic" : "Traffic this way";
+      const own = counted.get(2 * s + (oncoming ? 1 - e.d : e.d));
+      const shown = r.volume >= 1000 ? Math.round(r.volume / 100) * 100 : Math.round(r.volume / 10) * 10;
+      traffic = `<dt>${label}</dt><dd>≈${shown.toLocaleString()}/day</dd>`;
+      if (own !== undefined) traffic += `<dt>DOT counted</dt><dd>${own.toLocaleString()}/day</dd>`;
+    }
     let verdict;
     if (r.ride) verdict = `Ridden at <b class="num">${fmt2(r.rideFactor)}×</b> its length: costs <span class="num">${Math.round(len * r.rideFactor).toLocaleString()} m</span>.`;
     else if (r.canRide) verdict = `Walked: riding would cost <b class="num">${fmt2(r.rideFactor)}×</b>, the sidewalk <b class="num">${r.walkFactor.toFixed(1)}×</b>.`;
@@ -457,6 +466,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
         <dt>Bike facility this way</dt><dd>${FACILITY_LABEL[r.facility]}</dd>
         <dt>Cars</dt><dd>${cars}</dd>
         <dt>Travel lanes</dt><dd>${traf === 0 ? "–" : lanes > 0 ? lanes : "not recorded"}</dd>
+        ${traffic}
         <dt>Speed limit</dt><dd>${traf === 0 ? "–" : speed > 0 ? speed + " mph" : "25 mph (default)"}</dd>
         <dt>Truck route</dt><dd>${TRUCK_LABEL[(p >> 2) & 3]}</dd>
         <dt>Traffic penalty</dt><dd>${fmt2(r.penalty)}</dd>
@@ -500,8 +510,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     return [
       `EXPOSURE = {"separated": 0.0, "painted": ${n(k.exposure_painted)}, "shared": ${n(k.exposure_shared)}, "none": 1.0}`,
       `TRAFFIC_BASE = ${n(k.traffic_base)}`,
-      `TRAFFIC_PER_EXTRA_LANE = ${n(k.per_extra_lane)}`,
-      `TRAFFIC_MAX_EXTRA_LANES = ${k.max_extra_lanes}`,
+      `TRAFFIC_PER_DOUBLING = ${n(k.per_doubling)}`,
+      `VOLUME_REFERENCE = ${Math.round(k.volume_ref)}`,
       `TRAFFIC_PER_5_MPH = ${n(k.per_5_mph)}`,
       `TRUCK_PENALTY = {"1": ${n(k.truck_limited)}, "2": ${n(k.truck_local)}, "3": ${n(k.truck_through)}}`,
       `WALK_FACTOR = ${n(k.walk_factor)}`,
@@ -537,6 +547,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     data = d; defaults = Object.assign({}, d.knobs); k = Object.assign({}, defaults);
     document.getElementById("src").textContent = `LION ${d.lion_release.toUpperCase()} street map · NYC DOT bike routes · ${d.n.toLocaleString()} segments`;
     readPalette();
+    counted = new Map(d.counted.map(([s, dir, v]) => [2 * s + dir, v]));
     decode(d);
     buildKnobs();
     deckgl = new deck.Deck({

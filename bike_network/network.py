@@ -26,18 +26,42 @@ MIN_COST = 0.01
 CAR_DIRS = frozenset({"T", "W", "A"})
 
 
-def traffic_penalty(seg: pd.DataFrame) -> pd.Series:
-    """Rule-based traffic penalty per segment; 0 where no car is allowed."""
-    two_way = seg["traf_dir"] == "T"
-    lanes = seg["travel_lanes"].where(seg["travel_lanes"] > 0)
-    per_dir = np.ceil(lanes / np.where(two_way, 2, 1)).fillna(config.DEFAULT_LANES_PER_DIR)
-    extra = (per_dir - 1).clip(0, config.TRAFFIC_MAX_EXTRA_LANES)
+def direction_volumes(seg: pd.DataFrame, volumes: pd.DataFrame | None) -> pd.DataFrame:
+    """Add ``vol_fwd`` / ``vol_rev``: vehicles/day a rider shares each direction with.
+
+    ``volumes`` holds ``segment_id, dir, volume_est`` for each direction cars
+    travel (:func:`traffic.estimate`). Riding with traffic, that is the traffic
+    in the rider's direction. Riding a contraflow lane on a one-way street,
+    it is the street's one stream of oncoming traffic. A direction with no
+    estimate takes the other direction's, then ``VOLUME_REFERENCE``.
+    """
+    seg = seg.copy()
+    if volumes is None:
+        seg["vol_fwd"] = seg["vol_rev"] = float(config.VOLUME_REFERENCE)
+        return seg
+    est = volumes.set_index(["segment_id", "dir"])["volume_est"]
+    est = est[~est.index.duplicated()]
+    own = {
+        d: pd.Series(
+            est.reindex(pd.MultiIndex.from_arrays([seg["segment_id"], [d] * len(seg)])).to_numpy(),
+            index=seg.index,
+        )
+        for d in ("fwd", "rev")
+    }
+    seg["vol_fwd"] = own["fwd"].fillna(own["rev"]).fillna(config.VOLUME_REFERENCE)
+    seg["vol_rev"] = own["rev"].fillna(own["fwd"]).fillna(config.VOLUME_REFERENCE)
+    return seg
+
+
+def traffic_penalty(seg: pd.DataFrame, volume: pd.Series) -> pd.Series:
+    """Traffic penalty for one direction of each segment; 0 where no car is allowed."""
+    doublings = np.log2(volume / config.VOLUME_REFERENCE).clip(lower=0)
     speed = seg["speed_mph"].fillna(config.DEFAULT_SPEED_MPH)
     over = ((speed - config.DEFAULT_SPEED_MPH) / 5).clip(lower=0)
     truck = seg["truck_route"].map(config.TRUCK_PENALTY).fillna(0.0)
     penalty = (
         config.TRAFFIC_BASE
-        + config.TRAFFIC_PER_EXTRA_LANE * extra
+        + config.TRAFFIC_PER_DOUBLING * doublings
         + config.TRAFFIC_PER_5_MPH * over
         + truck
     )
@@ -47,14 +71,17 @@ def traffic_penalty(seg: pd.DataFrame) -> pd.Series:
 def build_edges(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
     """Return one row per traversable directed edge.
 
-    ``seg`` is :func:`lion.prepare` output and ``fac`` is
-    :func:`lanes.facilities` output. Columns: ``segment_id, dir, u, v,
-    length_m, facility, mode, factor, cost`` plus the inputs that set them.
+    ``seg`` is :func:`lion.prepare` output, with ``vol_fwd``/``vol_rev`` from
+    :func:`direction_volumes` (every street counts as quiet without them), and
+    ``fac`` is :func:`lanes.facilities` output. Columns: ``segment_id, dir,
+    u, v, length_m, facility, volume, mode, factor, cost`` plus the inputs
+    that set them.
     """
+    if "vol_fwd" not in seg:
+        seg = direction_volumes(seg, None)
     seg = seg.merge(fac, on="segment_id", how="left")
     seg["fwd"] = seg["fwd"].fillna("none")
     seg["rev"] = seg["rev"].fillna("none")
-    penalty = traffic_penalty(seg)
     step = seg["rw_type"] == config.RW_STEP_STREET
     no_ride = step | seg["vehicle_only"] | (seg["rw_type"] == config.RW_HIGHWAY)
     can_walk = ~seg["vehicle_only"] & (seg["rw_type"] != config.RW_HIGHWAY)
@@ -66,6 +93,8 @@ def build_edges(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
         ("rev", "v", "u", ("T", "A")),
     ):
         facility = seg[direction]
+        volume = seg[f"vol_{direction}"]
+        penalty = traffic_penalty(seg, volume)
         has_lane = facility != "none"
         cars_allow = seg["traf_dir"].isin(with_traffic) & ~no_ride
         can_ride = cars_allow | has_lane
@@ -81,6 +110,7 @@ def build_edges(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
                 "street": seg["street"],
                 "length_m": seg["length_m"],
                 "facility": facility,
+                "volume": volume.where(seg["traf_dir"].isin(CAR_DIRS)),
                 "traffic_penalty": penalty,
                 "mode": np.where(ride, "ride", "walk"),
                 "factor": np.where(ride, ride_factor, walk_factor),
