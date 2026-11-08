@@ -25,6 +25,13 @@ ruff format . && ruff check .
 `data/build/segments.parquet` (one row per LION segment, with geometry in
 EPSG:2263) and `data/build/edges.parquet` (one row per directed edge).
 
+`python -m bike_network viz` then exports the network to `data/build/viz/`
+for the edge-cost viewer (`viz/index.html`): every street drawn once per
+direction, coloured by cost, with a slider for each knob below. Serve that
+folder (`python -m http.server -d data/build/viz`) and open it. The viewer
+recomputes costs in the browser with `viz/cost.js`, which
+`tests/test_viz.py` holds to the Python model.
+
 ## Cost model
 
 Each directed edge costs `length_m * factor`. A bike either rides the edge or

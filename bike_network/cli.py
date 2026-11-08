@@ -7,7 +7,7 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from . import config, lanes, lion, sources
+from . import config, lanes, lion, sources, viz
 from .network import Graph, build_edges
 
 
@@ -54,11 +54,26 @@ def build() -> None:
     print(f"Wrote {config.BUILD_DIR / 'segments.parquet'} and edges.parquet")
 
 
+def build_viz() -> None:
+    """Export the built network for the edge-cost viewer."""
+    import geopandas as gpd  # noqa: PLC0415 -- only this command needs geometry
+
+    seg = gpd.read_parquet(config.BUILD_DIR / "segments.parquet")
+    edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet", columns=["segment_id"])
+    fac = lanes.load(sources.ensure_bike_routes())
+    payload = viz.export(seg, fac, edges)
+    viz.write(payload)
+    print(f"Wrote {config.BUILD_DIR / 'viz'}: {payload['n']:,} segments")
+
+
 def main() -> None:
     """Parse arguments and run a command."""
     parser = argparse.ArgumentParser(prog="bike_network")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("build", help="build the costed street network")
+    sub.add_parser("viz", help="export the built network for the viewer in viz/")
     args = parser.parse_args()
     if args.command == "build":
         build()
+    elif args.command == "viz":
+        build_viz()

@@ -1,0 +1,558 @@
+<title>NYC Bike Cost Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&family=Overpass+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a control rail beside a full-bleed street map; on a phone the map sits on top and the rail scrolls below it.
+   Type: Overpass, the open cut of the Highway Gothic lettering on US road signs, with its mono for figures. */
+:root {
+  --plane: #f3f3ef;
+  --surface: #fafaf7;
+  --ink: #161614;
+  --ink-2: #4b4a45;
+  --ink-3: #75736c;
+  --rule: #dcdad2;
+  --accent: #1c5cab;
+  --line-blue: #1c5cab;
+  --line-mid: #aeaca4;
+  --line-red: #b42b2a;
+  --line-faint: #dfddd6;
+  --line-walk: #161614;
+  --font-ui: "Overpass", "Helvetica Neue", Arial, sans-serif;
+  --font-num: "Overpass Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --rail: 360px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --plane: #0f0f0e; --surface: #161615; --ink: #efeee9; --ink-2: #c1bfb8; --ink-3: #8e8c85;
+    --rule: #2f2e2b; --accent: #6da7ec; --line-blue: #6da7ec; --line-mid: #5c5b56;
+    --line-red: #f07a72; --line-faint: #2b2a27; --line-walk: #f6f5f0; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --plane: #0f0f0e; --surface: #161615; --ink: #efeee9; --ink-2: #c1bfb8; --ink-3: #8e8c85;
+  --rule: #2f2e2b; --accent: #6da7ec; --line-blue: #6da7ec; --line-mid: #5c5b56;
+  --line-red: #f07a72; --line-faint: #2b2a27; --line-walk: #f6f5f0; color-scheme: dark;
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body {
+  background: var(--plane); color: var(--ink); font-family: var(--font-ui); font-size: 14px;
+  display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); overflow: hidden;
+}
+#rail {
+  overflow-y: auto; border-right: 1px solid var(--rule); min-width: 0;
+  padding-block: 20px 28px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 16px;
+  display: flex; flex-direction: column; gap: 22px;
+}
+#map { position: relative; background: var(--surface); min-width: 0; grid-column: 2; grid-row: 1; }
+#rail { grid-column: 1; grid-row: 1; }
+#map > canvas { position: absolute; inset: 0; z-index: 1; }
+#map > #card, #map > .hint, #map > #status { z-index: 2; }
+@media (max-width: 720px) {
+  body { display: block; overflow: auto; }
+  #map { height: 58vh; }
+  #rail { border-right: 0; border-top: 1px solid var(--rule);
+    padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+}
+h1 { font-size: 22px; font-weight: 800; letter-spacing: 0.01em; margin: 0; text-wrap: balance; }
+.lede { margin: 6px 0 0; color: var(--ink-2); line-height: 1.5; max-width: 60ch; }
+.src { margin: 6px 0 0; color: var(--ink-3); font-size: 12px; }
+h2 {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--ink-3); margin: 0 0 10px;
+}
+section { display: flex; flex-direction: column; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+/* legend */
+.ramp { height: 10px; border-radius: 2px; }
+.ramp-ticks { position: relative; height: 16px; margin-top: 4px; font-size: 11px; color: var(--ink-3); }
+.ramp-ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.ramp-ticks span:first-child { transform: none; }
+.ramp-ticks span:last-child { transform: translateX(-100%); }
+.ramp-ends { position: relative; height: 16px; font-size: 12px; color: var(--ink-2); }
+.ramp-ends span { position: absolute; white-space: nowrap; }
+.ramp-ends span:first-child { left: 0; }
+.ramp-ends span:last-child { right: 0; }
+.ramp-ticks span.at-quiet { transform: none; }
+.key { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px 10px; align-items: center; margin-top: 12px; }
+.key i { display: block; height: 0; border-top-style: solid; }
+.key .walkwin { border-top-width: 3px; border-color: var(--line-walk); }
+.key .walkonly { border-top-width: 1px; border-color: var(--line-faint); outline: 1px solid var(--rule); outline-offset: 2px; }
+.key .val { color: var(--ink-2); font-size: 12px; }
+
+/* headline */
+.headline { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.headline strong { font-family: var(--font-num); font-size: 26px; font-weight: 600; }
+.headline span { color: var(--ink-2); }
+.sub { color: var(--ink-3); font-size: 12px; margin-top: 4px; }
+
+/* histogram */
+#hist { width: 100%; height: auto; display: block; margin-top: 10px; overflow: visible; }
+#hist text { fill: var(--ink-3); font-family: var(--font-num); font-size: 10px; }
+#hist .axis { stroke: var(--rule); }
+#hist .brk { stroke: var(--plane); stroke-width: 2.5; }
+#hist .walkmark { stroke: var(--ink); stroke-dasharray: 3 3; }
+#hist .walklabel { fill: var(--ink); }
+#hist rect.hit { fill: transparent; cursor: default; }
+.hist-tip { min-height: 18px; font-size: 12px; color: var(--ink-2); margin-top: 6px; }
+
+/* knobs */
+.group { display: flex; flex-direction: column; gap: 12px; }
+.group + .group { margin-top: 18px; }
+.group h3 { font-size: 13px; font-weight: 600; margin: 0; color: var(--ink); }
+.knob { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: baseline; }
+.knob label { color: var(--ink-2); font-size: 13px; }
+.knob output { font-family: var(--font-num); font-size: 13px; color: var(--ink); }
+.knob output.changed { color: var(--accent); font-weight: 600; }
+.knob input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); margin: 2px 0 0; }
+.buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+button {
+  font: 600 13px var(--font-ui); color: var(--ink); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 4px; padding: 7px 12px; cursor: pointer;
+}
+button:hover { border-color: var(--ink-3); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#copied { font-size: 12px; color: var(--ink-2); align-self: center; }
+#configText { width: 100%; min-height: 150px; font: 12px var(--font-num); color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; margin-top: 8px; }
+
+/* detail card */
+#card {
+  position: absolute; z-index: 2; background: var(--plane); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 12px 14px; width: min(300px, calc(100% - 32px));
+  left: max(16px, env(safe-area-inset-left, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 4px 18px rgb(0 0 0 / 0.12);
+}
+#card h4 { margin: 0 24px 2px 0; font-size: 15px; font-weight: 800; }
+#card .dir { color: var(--ink-3); font-size: 12px; margin-bottom: 8px; }
+#card dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; font-size: 12px; }
+#card dt { color: var(--ink-3); }
+#card dd { margin: 0; text-align: right; font-family: var(--font-num); }
+#card .verdict { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--rule); font-size: 13px; }
+#card .x { position: absolute; top: 6px; right: 6px; border: 0; background: none; padding: 4px 8px; font-size: 16px; color: var(--ink-3); }
+#status {
+  position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-3); font-size: 13px;
+  pointer-events: none; text-align: center; padding: 16px;
+}
+.hint { position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); top: 12px; font-size: 11px; color: var(--ink-3); background: var(--plane); padding: 3px 7px; border-radius: 3px; border: 1px solid var(--rule); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div id="map">
+  <div id="status">Loading the street network…</div>
+  <div class="hint">Hover or tap a street</div>
+  <div id="card" hidden></div>
+</div>
+
+<aside id="rail">
+  <header>
+    <h1>NYC Bike Cost Map</h1>
+    <p class="lede">Every street is drawn once per direction, on the rider's right-hand side.
+      Colour is how much a metre of riding costs, against a quiet two-way street.</p>
+    <p class="src" id="src">LION street map · NYC DOT bike routes</p>
+  </header>
+
+  <section aria-labelledby="legend-h">
+    <h2 id="legend-h">Cost per metre ridden</h2>
+    <div class="ramp" id="ramp"></div>
+    <div class="ramp-ticks num" id="rampTicks"></div>
+    <div class="ramp-ends"><span>No traffic</span><span id="rampQuiet">Quiet street</span><span>Worst</span></div>
+    <div class="key">
+      <i class="walkwin"></i><span>Walking the bike beats riding</span><span class="val num" id="kmWalkWin"></span>
+      <i class="walkonly"></i><span>Walk only: against traffic, or a footpath</span><span class="val num" id="kmWalkOnly"></span>
+    </div>
+  </section>
+
+  <section aria-labelledby="hist-h">
+    <h2 id="hist-h">Ridden km by cost</h2>
+    <div class="headline"><strong id="kmRide">–</strong><span>km of one-way travel ridden</span></div>
+    <div class="sub" id="meanLine"></div>
+    <svg id="hist" viewBox="0 0 328 132" role="img" aria-label="Histogram of ridden kilometres by cost factor"></svg>
+    <div class="hist-tip num" id="histTip">Hover a bar for its kilometres</div>
+  </section>
+
+  <section aria-labelledby="knobs-h">
+    <h2 id="knobs-h">Cost knobs</h2>
+    <div id="knobs"></div>
+    <div class="buttons">
+      <button type="button" id="reset">Reset to config.py</button>
+      <button type="button" id="copy">Copy as config.py</button>
+      <span id="copied" role="status"></span>
+    </div>
+    <textarea id="configText" readonly hidden aria-label="Settings as config.py"></textarea>
+  </section>
+</aside>
+
+<script src="https://cdn.jsdelivr.net/npm/deck.gl@9.3.11/dist.min.js"></script>
+<script src="cost.js"></script>
+<script>
+"use strict";
+(function () {
+  const RAMP_MAX = 3.5;        // factor at which the red end saturates
+  const HIST_MAX = 4.5;        // histogram's last bin is "4.5 and over"
+  const HIST_STEP = 0.1;
+  const OFFSET = 0.6;          // each direction drawn this many line-widths to its right
+
+  const KNOBS = [
+    { group: "Traffic penalty, on any street with cars" },
+    { key: "traffic_base", label: "Any street with cars", min: 0, max: 1, step: 0.05 },
+    { key: "per_extra_lane", label: "Each travel lane per direction beyond the first", min: 0, max: 1, step: 0.05 },
+    { key: "max_extra_lanes", label: "Extra lanes counted, at most", min: 0, max: 5, step: 1, fmt: (v) => String(v) },
+    { key: "per_5_mph", label: "Each 5 mph over the 25 mph default", min: 0, max: 0.5, step: 0.05 },
+    { key: "truck_limited", label: "Truck route, limited local", min: 0, max: 1.5, step: 0.05 },
+    { key: "truck_local", label: "Truck route, local", min: 0, max: 1.5, step: 0.05 },
+    { key: "truck_through", label: "Truck route, through", min: 0, max: 1.5, step: 0.05 },
+    { group: "Share of that penalty a lane leaves" },
+    { key: "exposure_painted", label: "Painted lane", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
+    { key: "exposure_shared", label: "Sharrows or signed route", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
+    { group: "Walking the bike, × length" },
+    { key: "walk_factor", label: "On a sidewalk", min: 1.5, max: 8, step: 0.1, fmt: (v) => v.toFixed(1) + "×" },
+    { key: "step_factor", label: "Up or down a step street", min: 2, max: 12, step: 0.5, fmt: (v) => v.toFixed(1) + "×" },
+  ];
+  const fmt2 = (v) => v.toFixed(2);
+
+  let data, defaults, k, edges, segPaths;
+  let factor, kind, colors, overlay = [];
+  let version = 0, deckgl, selected = null;
+  let palette;
+
+  // ---------- colour ----------
+  function hexToRgb(h) {
+    const n = parseInt(h.trim().replace("#", ""), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  // Interpolate in OKLab so the ramp's middle stays grey rather than muddy.
+  function toLinear(c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+  function fromLinear(c) { const v = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055; return Math.round(Math.min(Math.max(v, 0), 1) * 255); }
+  function rgbToOklab([r, g, b]) {
+    r = toLinear(r); g = toLinear(g); b = toLinear(b);
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+  }
+  function oklabToRgb([L, a, b]) {
+    const l = Math.pow(L + 0.3963377774 * a + 0.2158037573 * b, 3);
+    const m = Math.pow(L - 0.1055613458 * a - 0.0638541728 * b, 3);
+    const s = Math.pow(L - 0.0894841775 * a - 1.291485548 * b, 3);
+    return [fromLinear(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+            fromLinear(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+            fromLinear(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s)];
+  }
+  function mix(a, b, t) { return oklabToRgb(a.map((v, i) => v + (b[i] - v) * t)); }
+
+  function readPalette() {
+    const cs = getComputedStyle(document.documentElement);
+    const get = (n) => hexToRgb(cs.getPropertyValue(n));
+    palette = {
+      blue: rgbToOklab(get("--line-blue")), mid: rgbToOklab(get("--line-mid")),
+      red: rgbToOklab(get("--line-red")), faint: get("--line-faint"), walk: get("--line-walk"),
+      blueHex: cs.getPropertyValue("--line-blue").trim(), midHex: cs.getPropertyValue("--line-mid").trim(),
+      redHex: cs.getPropertyValue("--line-red").trim(),
+    };
+  }
+  // A street with cars and no lane: exposure 1, so its factor is 1 + the base penalty.
+  function quietFactor() { return 1 + k.traffic_base; }
+  function rampColor(f) {
+    const mid = quietFactor();
+    if (f <= mid) {
+      const t = mid > 1 ? Math.min(Math.max((f - 1) / (mid - 1), 0), 1) : 1;
+      return mix(palette.blue, palette.mid, t);
+    }
+    const t = RAMP_MAX > mid ? Math.min((f - mid) / (RAMP_MAX - mid), 1) : 1;
+    return mix(palette.mid, palette.red, t);
+  }
+
+  // ---------- data ----------
+  function decode(d) {
+    const n = d.n, q = d.quant, ox = d.origin[0], oy = d.origin[1];
+    segPaths = new Array(n);
+    let ci = 0, px = 0, py = 0;
+    for (let i = 0; i < n; i++) {
+      const nv = d.nv[i];
+      const path = new Float64Array(nv * 2);
+      let x = px + d.c[ci++], y = py + d.c[ci++];
+      px = x; py = y;
+      path[0] = (ox + x) / q; path[1] = (oy + y) / q;
+      for (let j = 1; j < nv; j++) {
+        x += d.c[ci++]; y += d.c[ci++];
+        path[2 * j] = (ox + x) / q; path[2 * j + 1] = (oy + y) / q;
+      }
+      segPaths[i] = path;
+    }
+    edges = [];
+    for (let i = 0; i < n; i++) {
+      for (let dir = 0; dir < 2; dir++) {
+        if (BikeCost.edge(d.p[i], d.lanes[i], d.speed[i], dir, k) === null) continue;
+        let path = segPaths[i];
+        if (dir === 1) {
+          const r = new Float64Array(path.length), m = path.length / 2;
+          for (let j = 0; j < m; j++) { r[2 * j] = path[2 * (m - 1 - j)]; r[2 * j + 1] = path[2 * (m - 1 - j) + 1]; }
+          path = r;
+        }
+        edges.push({ s: i, d: dir, path });
+      }
+    }
+  }
+
+  // ---------- model ----------
+  function recompute() {
+    const m = edges.length;
+    if (!factor || factor.length !== m) { factor = new Float32Array(m); kind = new Uint8Array(m); colors = new Uint8Array(m * 4); }
+    const hist = new Float64Array(Math.round((HIST_MAX - 1) / HIST_STEP) + 1);
+    let kmRide = 0, kmWalkWin = 0, kmWalkOnly = 0, weighted = 0;
+    overlay = [];
+    for (let i = 0; i < m; i++) {
+      const e = edges[i], s = e.s;
+      const r = BikeCost.edge(data.p[s], data.lanes[s], data.speed[s], e.d, k);
+      const len = data.len[s];
+      let rgb;
+      if (r === null) { kind[i] = 2; factor[i] = 0; rgb = palette.faint; }
+      else if (r.ride) {
+        kind[i] = 0; factor[i] = r.factor; rgb = rampColor(r.factor);
+        kmRide += len; weighted += len * r.factor;
+        const b = Math.min(Math.floor((r.factor - 1 + 1e-9) / HIST_STEP), hist.length - 1);
+        hist[Math.max(b, 0)] += len;
+      } else if (r.canRide) {
+        kind[i] = 1; factor[i] = r.factor; rgb = palette.walk; kmWalkWin += len; overlay.push(e);
+      } else { kind[i] = 2; factor[i] = r.factor; rgb = palette.faint; kmWalkOnly += len; }
+      colors[4 * i] = rgb[0]; colors[4 * i + 1] = rgb[1]; colors[4 * i + 2] = rgb[2]; colors[4 * i + 3] = 255;
+    }
+    version++;
+    document.getElementById("kmRide").textContent = Math.round(kmRide / 1000).toLocaleString();
+    document.getElementById("meanLine").textContent =
+      "Average " + (weighted / kmRide).toFixed(2) + "× length · quiet street " + quietFactor().toFixed(2) + "×";
+    document.getElementById("kmWalkWin").textContent = (kmWalkWin / 1000).toFixed(1) + " km";
+    document.getElementById("kmWalkOnly").textContent = Math.round(kmWalkOnly / 1000).toLocaleString() + " km";
+    drawLegend();
+    drawHist(hist);
+    render();
+    if (selected) showCard(selected);
+  }
+
+  // ---------- legend + histogram ----------
+  // The legend gives each arm of the diverging ramp its own width: the blue arm
+  // spans 1.0 to a quiet street (often 0.2 wide), the red one the rest.
+  const BLUE_ARM = 0.25;
+  function legendPos(f) {
+    const mid = quietFactor();
+    if (f <= mid) return mid > 1 ? (f - 1) / (mid - 1) * BLUE_ARM : 0;
+    return BLUE_ARM + (1 - BLUE_ARM) * Math.min((f - mid) / Math.max(RAMP_MAX - mid, 1e-6), 1);
+  }
+  function drawLegend() {
+    const mid = quietFactor(), stops = [];
+    const add = (f) => { const c = rampColor(f); stops.push(`rgb(${c[0]} ${c[1]} ${c[2]}) ${(legendPos(f) * 100).toFixed(1)}%`); };
+    for (let i = 0; i <= 10; i++) add(1 + (mid - 1) * i / 10);
+    for (let i = 1; i <= 20; i++) add(mid + (RAMP_MAX - mid) * i / 20);
+    document.getElementById("ramp").style.background = `linear-gradient(to right, ${stops.join(", ")})`;
+    const ticks = [[1, "1.0"], [mid, mid.toFixed(2)]];
+    for (const f of [2, 2.5, 3]) if (f - mid > 0.3) ticks.push([f, f.toFixed(1)]);
+    ticks.push([RAMP_MAX, RAMP_MAX.toFixed(1) + "+"]);
+    document.getElementById("rampTicks").innerHTML = ticks.map(([f, label]) =>
+      `<span${f === mid ? ' class="at-quiet"' : ""} style="left:${(legendPos(f) * 100).toFixed(1)}%">${label}</span>`).join("");
+    document.getElementById("rampQuiet").style.left = (BLUE_ARM * 100) + "%";
+  }
+
+  function drawHist(hist) {
+    const svg = document.getElementById("hist");
+    const W = 328, H = 132, top = 8, bottom = 22, left = 0;
+    const plotH = H - top - bottom, n = hist.length, bw = W / n;
+    // One bar (the quiet streets) can hold most of the network; scale to the
+    // next tallest so the rest can be read, and mark the clipped bar.
+    const sorted = Array.from(hist).sort((a, b) => b - a);
+    const clip = sorted[0] > 2.5 * sorted[1] && sorted[1] > 0;
+    const maxV = clip ? sorted[1] * 1.6 : Math.max(sorted[0], 1);
+    const x = (f) => left + (f - 1) / (HIST_MAX - 1 + HIST_STEP) * W;
+    let out = `<line class="axis" x1="0" x2="${W}" y1="${H - bottom + 0.5}" y2="${H - bottom + 0.5}"/>`;
+    for (let i = 0; i < n; i++) {
+      const v = hist[i], h = Math.min(v / maxV, 1) * plotH, f = 1 + (i + 0.5) * HIST_STEP;
+      const c = rampColor(Math.min(f, RAMP_MAX));
+      if (h > 0) {
+        const y = H - bottom - h, r = Math.min(2, h / 2);
+        out += `<path d="M${i * bw + 1},${H - bottom} V${y + r} q0,-${r} ${r},-${r} H${(i + 1) * bw - 1 - r} q${r},0 ${r},${r} V${H - bottom} Z" fill="rgb(${c[0]} ${c[1]} ${c[2]})"/>`;
+      }
+      if (v > maxV) {
+        const cx = (i + 0.5) * bw, km = Math.round(v / 1000).toLocaleString();
+        out += `<path class="brk" d="M${i * bw},${top + 14} l${bw},-4 M${i * bw},${top + 18} l${bw},-4"/>`;
+        out += `<text x="${cx + bw / 2 + 3}" y="${top + 8}" text-anchor="start">${km} km</text>`;
+      }
+      out += `<rect class="hit" x="${i * bw}" y="${top}" width="${bw}" height="${plotH}" data-i="${i}"/>`;
+    }
+    for (const f of [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5]) {
+      const label = f === HIST_MAX ? "4.5+" : f.toFixed(1);
+      const anchor = f === 1 ? "start" : f === HIST_MAX ? "end" : "middle";
+      out += `<text x="${f === HIST_MAX ? W : x(f)}" y="${H - 6}" text-anchor="${anchor}">${label}</text>`;
+    }
+    if (k.walk_factor < HIST_MAX) {
+      const wx = x(k.walk_factor);
+      out += `<line class="walkmark" x1="${wx}" x2="${wx}" y1="${top}" y2="${H - bottom}"/>`;
+      const left = wx > 70;
+      out += `<text class="walklabel" x="${left ? wx - 4 : wx + 4}" y="${top + 8}" text-anchor="${left ? "end" : "start"}">walk ${k.walk_factor.toFixed(1)}×</text>`;
+    }
+    svg.innerHTML = out;
+    svg.onmousemove = (ev) => {
+      const t = ev.target.closest("rect.hit");
+      const tip = document.getElementById("histTip");
+      if (!t) return;
+      const i = +t.dataset.i, lo = 1 + i * HIST_STEP;
+      const range = i === n - 1 ? `${lo.toFixed(1)}× and over` : `${lo.toFixed(1)}–${(lo + HIST_STEP).toFixed(1)}×`;
+      tip.textContent = `${range}: ${(hist[i] / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} km`;
+    };
+  }
+
+  // ---------- map ----------
+  function layers() {
+    const ext = new deck.PathStyleExtension({ offset: true });
+    return [
+      new deck.PathLayer({
+        id: "edges", data: edges, getPath: (e) => e.path, positionFormat: "XY",
+        getColor: (e, { index }) => colors.subarray(4 * index, 4 * index + 4),
+        getWidth: (e, { index }) => (kind[index] === 2 ? 0.8 : 1.4),
+        widthUnits: "pixels", widthMinPixels: 0.6, getOffset: OFFSET, extensions: [ext],
+        capRounded: false, jointRounded: false, pickable: true, autoHighlight: true,
+        highlightColor: [255, 196, 0, 255],
+        updateTriggers: { getColor: version, getWidth: version },
+      }),
+      new deck.PathLayer({
+        id: "walkwin", data: overlay, getPath: (e) => e.path, positionFormat: "XY",
+        getColor: palette.walk.concat(255), getWidth: 3, widthUnits: "pixels",
+        getOffset: OFFSET * 1.4 / 3, extensions: [ext], pickable: false,
+        updateTriggers: { getColor: version },
+      }),
+    ];
+  }
+  function render() { if (deckgl) deckgl.setProps({ layers: layers() }); }
+
+  const COMPASS = ["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"];
+  function heading(path) {
+    const n = path.length;
+    const lat = (path[1] + path[n - 1]) / 2 * Math.PI / 180;
+    const dx = (path[n - 2] - path[0]) * Math.cos(lat), dy = path[n - 1] - path[1];
+    const deg = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+    return COMPASS[Math.round(deg / 45) % 8] + "bound";
+  }
+  const FACILITY_LABEL = ["None", "Sharrows or signed route", "Painted lane", "Protected lane or path"];
+  const TRUCK_LABEL = ["No", "Limited local", "Local", "Through"];
+
+  function showCard(e) {
+    selected = e;
+    const s = e.s, p = data.p[s];
+    const r = BikeCost.edge(p, data.lanes[s], data.speed[s], e.d, k);
+    const traf = p & 3;
+    const cars = traf === 0 ? "None" : traf === 1 ? "Two-way" : (traf === (e.d === 0 ? 2 : 3) ? "One-way, with you" : "One-way, against you");
+    const lanes = data.lanes[s], speed = data.speed[s], len = data.len[s];
+    let verdict;
+    if (r.ride) verdict = `Ridden at <b class="num">${fmt2(r.rideFactor)}×</b> its length: costs <span class="num">${Math.round(len * r.rideFactor).toLocaleString()} m</span>.`;
+    else if (r.canRide) verdict = `Walked: riding would cost <b class="num">${fmt2(r.rideFactor)}×</b>, the sidewalk <b class="num">${r.walkFactor.toFixed(1)}×</b>.`;
+    else verdict = `Walked at <b class="num">${r.walkFactor.toFixed(1)}×</b>: riding this way is not allowed.`;
+    const card = document.getElementById("card");
+    card.innerHTML = `<button type="button" class="x" aria-label="Close">×</button>
+      <h4></h4><div class="dir">${heading(e.path)} · <span class="num">${Math.round(len)} m</span></div>
+      <dl>
+        <dt>Bike facility this way</dt><dd>${FACILITY_LABEL[r.facility]}</dd>
+        <dt>Cars</dt><dd>${cars}</dd>
+        <dt>Travel lanes</dt><dd>${traf === 0 ? "–" : lanes > 0 ? lanes : "not recorded"}</dd>
+        <dt>Speed limit</dt><dd>${traf === 0 ? "–" : speed > 0 ? speed + " mph" : "25 mph (default)"}</dd>
+        <dt>Truck route</dt><dd>${TRUCK_LABEL[(p >> 2) & 3]}</dd>
+        <dt>Traffic penalty</dt><dd>${fmt2(r.penalty)}</dd>
+      </dl>
+      <div class="verdict">${verdict}</div>`;
+    card.querySelector("h4").textContent = data.names[data.name[s]] || "Unnamed";
+    card.querySelector(".x").onclick = () => { card.hidden = true; selected = null; };
+    card.hidden = false;
+  }
+
+  // ---------- knobs ----------
+  function buildKnobs() {
+    const root = document.getElementById("knobs");
+    let group;
+    for (const kn of KNOBS) {
+      if (kn.group) {
+        group = document.createElement("div"); group.className = "group";
+        group.innerHTML = `<h3>${kn.group}</h3>`; root.appendChild(group); continue;
+      }
+      const f = kn.fmt || fmt2;
+      const row = document.createElement("div"); row.className = "knob";
+      row.innerHTML = `<label for="k-${kn.key}">${kn.label}</label><output id="o-${kn.key}" for="k-${kn.key}"></output>
+        <input type="range" id="k-${kn.key}" min="${kn.min}" max="${kn.max}" step="${kn.step}" value="${k[kn.key]}">`;
+      group.appendChild(row);
+      const input = row.querySelector("input"), out = row.querySelector("output");
+      const sync = () => { out.textContent = f(k[kn.key]); out.classList.toggle("changed", Math.abs(k[kn.key] - defaults[kn.key]) > 1e-9); };
+      sync();
+      kn.sync = () => { input.value = k[kn.key]; sync(); };
+      input.addEventListener("input", () => { k[kn.key] = parseFloat(input.value); sync(); schedule(); });
+    }
+  }
+  let pending = false;
+  function schedule() {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => { pending = false; recompute(); });
+  }
+
+  function configText() {
+    const n = (v) => (Number.isInteger(v) ? v.toFixed(1) : String(+v.toFixed(3)));
+    return [
+      `EXPOSURE = {"separated": 0.0, "painted": ${n(k.exposure_painted)}, "shared": ${n(k.exposure_shared)}, "none": 1.0}`,
+      `TRAFFIC_BASE = ${n(k.traffic_base)}`,
+      `TRAFFIC_PER_EXTRA_LANE = ${n(k.per_extra_lane)}`,
+      `TRAFFIC_MAX_EXTRA_LANES = ${k.max_extra_lanes}`,
+      `TRAFFIC_PER_5_MPH = ${n(k.per_5_mph)}`,
+      `TRUCK_PENALTY = {"1": ${n(k.truck_limited)}, "2": ${n(k.truck_local)}, "3": ${n(k.truck_through)}}`,
+      `WALK_FACTOR = ${n(k.walk_factor)}`,
+      `STEP_FACTOR = ${n(k.step_factor)}`,
+    ].join("\n");
+  }
+
+  document.getElementById("reset").onclick = () => {
+    k = Object.assign({}, defaults);
+    for (const kn of KNOBS) if (kn.sync) kn.sync();
+    schedule();
+  };
+  document.getElementById("copy").onclick = () => {
+    const text = configText(), note = document.getElementById("copied"), area = document.getElementById("configText");
+    const fallback = () => { area.value = text; area.hidden = false; area.focus(); area.select(); note.textContent = "Select and copy below"; };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => { note.textContent = "Copied"; area.hidden = true; }, fallback);
+    } else fallback();
+  };
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") { document.getElementById("card").hidden = true; selected = null; }
+  });
+
+  function onTheme() { if (!data) return; readPalette(); recompute(); }
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", onTheme);
+  new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  // ---------- boot ----------
+  fetch("data.json").then((r) => {
+    if (!r.ok) throw new Error("data.json returned " + r.status);
+    return r.json();
+  }).then((d) => {
+    data = d; defaults = Object.assign({}, d.knobs); k = Object.assign({}, defaults);
+    document.getElementById("src").textContent = `LION ${d.lion_release.toUpperCase()} street map · NYC DOT bike routes · ${d.n.toLocaleString()} segments`;
+    readPalette();
+    decode(d);
+    buildKnobs();
+    deckgl = new deck.Deck({
+      parent: document.getElementById("map"),
+      views: new deck.MapView({ repeat: false }),
+      initialViewState: { longitude: -73.965, latitude: 40.725, zoom: 11.6, minZoom: 9, maxZoom: 19 },
+      controller: true,
+      getCursor: ({ isHovering }) => (isHovering ? "pointer" : "grab"),
+      onHover: (info) => { if (info.object && window.matchMedia("(hover: hover)").matches) showCard(info.object); },
+      onClick: (info) => { if (info.object) showCard(info.object); },
+      layers: [],
+    });
+    document.getElementById("status").hidden = true;
+    recompute();
+  }).catch((err) => {
+    document.getElementById("status").textContent = "The street data did not load: " + err.message + ". Reload the page to try again.";
+  });
+})();
+</script>
