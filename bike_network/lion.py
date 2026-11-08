@@ -9,6 +9,9 @@ LION is NYC DCP's street centreline. Its codes, from the release metadata:
   one-way street shows up.
 - ``NonPed``: ``V`` is vehicle-only (highways and the like).
 - ``Number_Travel_Lanes`` counts the lanes of one carriageway, both directions.
+- ``Snow_Priority`` ``C`` marks DSNY's critical routes (arterials, bus and
+  truck routes); ``Carto_Display_Level`` 10/20/30 flags the roads DCP draws at
+  city, borough and neighborhood scale. Both are used as traffic predictors.
 
 A segment can appear on several rows that differ only in address ranges or
 alternate names, so rows are deduplicated on (segment, from node, to node).
@@ -47,6 +50,9 @@ COLUMNS = [
     "Number_Travel_Lanes",
     "Number_Park_Lanes",
     "TRUCK_ROUTE_TYPE",
+    "StreetWidth_Min",
+    "Snow_Priority",
+    "Carto_Display_Level",
     "LBoro",
     "SHAPE_Length",
 ]
@@ -97,6 +103,9 @@ def prepare(raw: pd.DataFrame) -> pd.DataFrame:
             "travel_lanes": _number(df["Number_Travel_Lanes"]),
             "park_lanes": _number(df["Number_Park_Lanes"]),
             "truck_route": _code(df["TRUCK_ROUTE_TYPE"]),
+            "width_ft": pd.to_numeric(df["StreetWidth_Min"], errors="coerce"),
+            "snow_priority": _code(df["Snow_Priority"]),
+            "carto_level": _number(df["Carto_Display_Level"]),
             "boro": _number(df["LBoro"]).astype("Int64"),
             "length_m": df["SHAPE_Length"].astype(float) * config.FEET_TO_M,
         },

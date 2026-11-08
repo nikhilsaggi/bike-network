@@ -18,6 +18,9 @@ def lion_row(seg, u, v, traf="T", **kw):
         "Number_Travel_Lanes": " 2",
         "Number_Park_Lanes": " 2",
         "TRUCK_ROUTE_TYPE": " ",
+        "StreetWidth_Min": 34.0,
+        "Snow_Priority": "S",
+        "Carto_Display_Level": "  ",
         "LBoro": 1,
         "SHAPE_Length": kw.pop("feet", 1000.0 / 0.3048),  # 1 km by default
     }
