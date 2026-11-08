@@ -32,6 +32,21 @@ folder (`python -m http.server -d data/build/viz`) and open it. The viewer
 recomputes costs in the browser with `viz/cost.js`, which
 `tests/test_viz.py` holds to the Python model.
 
+## Routing Citi Bike trips
+
+`python -m bike_network assign` downloads Citi Bike's
+[trip data](https://s3.amazonaws.com/tripdata/index.html) for
+`DEMAND_YEAR` (2025; about 8 GB of monthly zips, each reduced once to
+station-to-station counts under `data/build/demand/`), snaps every station
+to the nearest node of the main network, and routes each trip on its
+cheapest route. It routes them again on the shortest legal route (riding
+at 1x wherever riding is allowed) as the baseline the safety cost has to
+beat, and writes `flows.parquet` (trips a year on each directed edge, both
+ways), `routes.parquet` (each station pair's route) and `stations.parquet`.
+
+Trips that start and end at the same station are loops with no route and
+are dropped; so are trips with no end station.
+
 ## Cost model
 
 Each directed edge costs `length_m * factor`. A bike either rides the edge or

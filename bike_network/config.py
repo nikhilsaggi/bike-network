@@ -37,6 +37,11 @@ BIKE_ROUTES_URL = (
     f"&$limit={BIKE_ROUTES_LIMIT}&$order=:id"
 )
 
+# Citi Bike demand: every station-to-station trip of one calendar year. 2025
+# is the latest year whose months all look complete (April and October 2026
+# are a fraction of their 2025 size).
+DEMAND_YEAR = 2025
+
 # --- Which LION records are network ------------------------------------------
 
 # FeatureTyp: 0 street, 6 private street, A alley, W addressable path, C street

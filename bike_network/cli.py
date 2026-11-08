@@ -7,7 +7,7 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from . import config, lanes, lion, sources, traffic, viz
+from . import assignment, config, demand, lanes, lion, sources, traffic, viz
 from .network import Graph, build_edges, direction_volumes, mark_shared_streets
 
 
@@ -95,6 +95,85 @@ def evaluate_traffic() -> None:
         print(f"    {s.name:30s} {s.r2:6.2f} {s.spearman:7.2f} {s.median_factor:13.2f}x")
 
 
+def _trip_km_by_facility(edges: pd.DataFrame, trips: np.ndarray) -> pd.Series:
+    kind = np.where(edges["mode"] == "walk", "walked", edges["facility"])
+    km = pd.Series(trips * edges["length_m"].to_numpy() / 1000).groupby(kind).sum()
+    return km / km.sum()
+
+
+def run_assignment() -> None:
+    """Route a year of Citi Bike trips and write per-edge trip counts."""
+    edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet")
+    seg = pd.read_parquet(config.BUILD_DIR / "segments.parquet", columns=["segment_id", "boro"])
+    graph = Graph.from_edges(edges)
+    base = Graph.from_edges(assignment.baseline_edges(edges))
+    labels = graph.strong_components()
+    main_component = graph.nodes[labels == np.bincount(labels).argmax()]
+
+    print(f"Citi Bike {config.DEMAND_YEAR}")
+    od, stations = demand.year_demand(config.DEMAND_YEAR)
+    nodes = lion.read_nodes(sources.ensure_lion())
+    stations = demand.snap(stations, nodes, main_component)
+    node_of = stations.set_index("station")["node"]
+    od = od.assign(o=od["start_station_id"].map(node_of), d=od["end_station_id"].map(node_of))
+    usable = (od["o"] >= 0) & (od["d"] >= 0)
+    total = od["trips"].sum()
+    print(
+        f"  {len(stations):,} stations, {(stations['node'] < 0).sum()} off the network; "
+        f"{total:,} trips between stations, {od.loc[~usable, 'trips'].sum():,} with an end off it"
+    )
+    od = od[usable]
+    od = od.assign(o=od["o"].astype("int64"), d=od["d"].astype("int64"))
+
+    print("Routing (safety cost, then shortest legal distance)...")
+    safe = assignment.assign(graph, od[["o", "d", "trips"]])
+    short = assignment.assign(base, od[["o", "d", "trips"]])
+    r, s = safe.od, short.od
+    same_node = od.loc[od["o"] == od["d"], "trips"].sum()  # neighbouring stations
+    print(
+        f"  {r['trips'].sum():,.0f} trips routed ({same_node:,.0f} start and end at one node); "
+        f"{(~r['reachable']).sum()} pairs unreachable"
+    )
+    km_safe = (r["trips"] * r["length_m"]).sum() / 1000
+    km_short = (s["trips"] * s["length_m"]).sum() / 1000
+    print(
+        f"  Trip-km: {km_safe:,.0f} on the safest routes, {km_short:,.0f} on the shortest "
+        f"(safest routes are {km_safe / km_short - 1:.1%} longer)"
+    )
+    share = pd.DataFrame(
+        {
+            "safest": _trip_km_by_facility(graph.edges, safe.edge_trips),
+            "shortest": _trip_km_by_facility(base.edges, short.edge_trips),
+        }
+    ).fillna(0)
+    print("  Share of trip-km by facility:")
+    for kind, row in share.iterrows():
+        print(f"    {kind:10s} {row['safest']:6.1%} {row['shortest']:9.1%}")
+
+    flows = edges[["segment_id", "dir", "street", "facility", "length_m"]].copy()
+    flows["trips"] = safe.edge_trips
+    flows["trips_shortest"] = short.edge_trips
+    flows = flows.merge(seg.drop_duplicates("segment_id"), on="segment_id", how="left")
+    lanes_only = flows[flows["facility"] != "none"]
+    top = (
+        lanes_only.assign(trip_km=lanes_only["trips"] * lanes_only["length_m"] / 1000)
+        .groupby(["street", "boro"])
+        .agg(trip_km=("trip_km", "sum"), peak_per_day=("trips", lambda x: x.max() / 365))
+        .sort_values("trip_km", ascending=False)
+        .head(15)
+    )
+    print("  Busiest bike facilities (trip-km a year, busiest block's trips a day):")
+    for (street, boro), row in top.iterrows():
+        print(
+            f"    {street[:34]:34s} {int(boro)} {row['trip_km']:12,.0f} {row['peak_per_day']:8,.0f}"
+        )
+
+    flows.to_parquet(config.BUILD_DIR / "flows.parquet")
+    r.to_parquet(config.BUILD_DIR / "routes.parquet")
+    stations.to_parquet(config.BUILD_DIR / "stations.parquet")
+    print(f"Wrote flows, routes and stations parquet files to {config.BUILD_DIR}")
+
+
 def main() -> None:
     """Parse arguments and run a command."""
     parser = argparse.ArgumentParser(prog="bike_network")
@@ -102,6 +181,7 @@ def main() -> None:
     sub.add_parser("build", help="build the costed street network")
     sub.add_parser("viz", help="export the built network for the viewer in viz/")
     sub.add_parser("traffic", help="score the traffic volume model on held-out streets")
+    sub.add_parser("assign", help="route a year of Citi Bike trips over the network")
     args = parser.parse_args()
     if args.command == "build":
         build()
@@ -109,3 +189,5 @@ def main() -> None:
         build_viz()
     elif args.command == "traffic":
         evaluate_traffic()
+    elif args.command == "assign":
+        run_assignment()
