@@ -253,14 +253,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 "use strict";
 (function () {
   const RAMP_MAX = 3.5;        // factor at which the red end saturates
-  const HIST_MAX = 4.5;        // histogram's last bin is "4.5 and over"
+  const HIST_MAX = 6;          // histogram's last bin is "6 and over"
   const HIST_STEP = 0.1;
   const OFFSET = 0.6;          // each direction drawn this many line-widths to its right
 
   const KNOBS = [
     { group: "Traffic penalty, on any street with cars" },
     { key: "traffic_base", label: "Any street with cars", min: 0, max: 1, step: 0.05 },
-    { key: "per_doubling", label: "Each doubling of traffic above a quiet street", min: 0, max: 1, step: 0.05 },
+    { key: "per_doubling", label: "Each doubling of traffic above a quiet street", min: 0, max: 2, step: 0.05 },
     { key: "volume_ref", label: "A quiet street's traffic, vehicles a day one way", min: 400, max: 6000, step: 100, fmt: (v) => Math.round(v).toLocaleString() },
     { key: "per_5_mph", label: "Each 5 mph over the 25 mph default", min: 0, max: 0.5, step: 0.05 },
     { key: "truck_limited", label: "Truck route, limited local", min: 0, max: 1.5, step: 0.05 },
@@ -270,8 +270,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     { key: "exposure_painted", label: "Painted lane", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
     { key: "exposure_shared", label: "Sharrows or signed route", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
     { group: "Walking the bike, × length" },
-    { key: "walk_factor", label: "On a sidewalk", min: 1.5, max: 8, step: 0.1, fmt: (v) => v.toFixed(1) + "×" },
-    { key: "step_factor", label: "Up or down a step street", min: 2, max: 12, step: 0.5, fmt: (v) => v.toFixed(1) + "×" },
+    { key: "walk_factor", label: "On a sidewalk", min: 1.5, max: 16, step: 0.5, fmt: (v) => v.toFixed(1) + "×" },
+    { key: "step_factor", label: "Up or down a step street", min: 2, max: 24, step: 0.5, fmt: (v) => v.toFixed(1) + "×" },
   ];
   const fmt2 = (v) => v.toFixed(2);
 
@@ -449,8 +449,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
       }
       out += `<rect class="hit" x="${i * bw}" y="${top}" width="${bw}" height="${plotH}" data-i="${i}"/>`;
     }
-    for (const f of [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5]) {
-      const label = f === HIST_MAX ? "4.5+" : f.toFixed(1);
+    for (const f of [1, 2, 3, 4, 5, 6]) {
+      const label = f === HIST_MAX ? HIST_MAX + "+" : f.toFixed(1);
       const anchor = f === 1 ? "start" : f === HIST_MAX ? "end" : "middle";
       out += `<text x="${f === HIST_MAX ? W : x(f)}" y="${H - 6}" text-anchor="${anchor}">${label}</text>`;
     }

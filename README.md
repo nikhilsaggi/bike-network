@@ -59,7 +59,7 @@ is walked on the sidewalk, whichever is cheaper:
   bike facility for (contraflow lanes, two-way greenways).
   `factor = 1 + exposure * traffic_penalty`.
 - **Walking** the bike is legal on any sidewalk in either direction:
-  `factor = 4` (8 on a step street). Vehicle-only roads have no walk edge.
+  `factor = 8` (12 on a step street). Vehicle-only roads have no walk edge.
 
 | Facility in the direction of travel | exposure |
 |---|---|
@@ -67,12 +67,16 @@ is walked on the sidewalk, whichever is cheaper:
 | Painted (conventional, buffered, curbside) | 0.3 |
 | Shared, signed route, wide parking lane, none | 1 |
 
-`traffic_penalty` is 0 where no car may go. Otherwise it is 0.2, plus 0.3
+`traffic_penalty` is 0 where no car may go. Otherwise it is 0.2, plus 1.0
 for each doubling of traffic above a quiet street's 1,600 vehicles a day,
 plus 0.15 per 5 mph over 25, plus 0.2 / 0.3 / 0.5 for a limited-local /
 local / through truck route. Traffic is the volume in the rider's direction
 (the oncoming stream, in a contraflow lane). All of these numbers live in
 `bike_network/config.py`.
+
+The traffic weight and the walking factor are calibrated against DOT's bike
+counters; the rest are judgment. **[docs/methodology.md](docs/methodology.md)**
+sets out how each weight was chosen and the evidence for it.
 
 ## Traffic volume
 

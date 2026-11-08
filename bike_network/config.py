@@ -100,7 +100,7 @@ FACILITY_RANK = {"separated": 3, "painted": 2, "shared": 1, "none": 0}
 # by bike_network.traffic from DOT's counts. Each doubling above a quiet street
 # adds the same amount, so 3,200 -> 6,400 weighs as much as 6,400 -> 12,800.
 TRAFFIC_BASE = 0.2  # any street with cars on it
-TRAFFIC_PER_DOUBLING = 0.3
+TRAFFIC_PER_DOUBLING = 1.0  # calibrated: see docs/methodology.md
 VOLUME_REFERENCE = 1600  # vehicles/day one way: the median one-lane street's estimate
 TRAFFIC_PER_5_MPH = 0.15  # each 5 mph of posted speed above the default
 DEFAULT_SPEED_MPH = 25  # NYC's citywide default limit
@@ -108,7 +108,9 @@ DEFAULT_SPEED_MPH = 25  # NYC's citywide default limit
 TRUCK_PENALTY = {"1": 0.2, "2": 0.3, "3": 0.5}
 
 # Walking the bike is legal on any sidewalk in either direction, so every
-# segment a pedestrian may use stays traversable at walking pace (riding is
-# roughly four times faster). A step street means carrying the bike.
-WALK_FACTOR = 4.0
-STEP_FACTOR = 8.0
+# segment a pedestrian may use stays traversable. Walking is about four times
+# slower than riding; the counters say riders treat it as worse still (the
+# hassle of dismounting), so it is calibrated to 8. A step street means
+# carrying the bike, set above walking by judgment.
+WALK_FACTOR = 8.0  # calibrated: see docs/methodology.md
+STEP_FACTOR = 12.0

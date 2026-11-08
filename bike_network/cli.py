@@ -58,6 +58,9 @@ def build() -> None:
     seg = lion.read(gdb)
     print(f"  {len(seg):,} segments")
     fac = lanes.load(routes)
+    n_dot = len(fac)
+    fac = lanes.with_lion_paths(fac, seg)
+    print(f"  {len(fac) - n_dot} separated paths taken from LION where DOT has no current record")
     print("Traffic")
     est, counted = traffic.volumes(seg)
     print(
@@ -74,6 +77,7 @@ def build() -> None:
     seg.to_parquet(config.BUILD_DIR / "segments.parquet")
     edges.to_parquet(config.BUILD_DIR / "edges.parquet")
     est.to_parquet(config.BUILD_DIR / "traffic.parquet")
+    fac.to_parquet(config.BUILD_DIR / "facilities.parquet")
     print(f"Wrote segments, edges and traffic parquet files to {config.BUILD_DIR}")
 
 
@@ -83,7 +87,7 @@ def build_viz() -> None:
 
     seg = gpd.read_parquet(config.BUILD_DIR / "segments.parquet")
     edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet", columns=["segment_id"])
-    fac = lanes.load(sources.ensure_bike_routes())
+    fac = pd.read_parquet(config.BUILD_DIR / "facilities.parquet")
     counted = pd.read_parquet(config.BUILD_DIR / "traffic.parquet")
     flows_path = config.BUILD_DIR / "flows.parquet"
     flows = None
@@ -209,12 +213,17 @@ GRID = {
 }
 
 
-def run_calibration() -> None:
-    """Score a grid of knob settings against DOT's bike counters."""
+def run_calibration(grid: dict[str, list[float]] | None = None) -> None:
+    """Score a grid of knob settings against DOT's bike counters.
+
+    Results merge into ``calibration.parquet`` by setting, so a follow-up grid
+    (``--walk 8,12``) extends the earlier one instead of replacing it.
+    """
+    grid = {**GRID, **(grid or {})}
     import geopandas as gpd  # noqa: PLC0415 -- only this command needs geometry
 
     seg = gpd.read_parquet(config.BUILD_DIR / "segments.parquet")
-    fac = lanes.load(sources.ensure_bike_routes())
+    fac = pd.read_parquet(config.BUILD_DIR / "facilities.parquet")
     edges = build_edges(seg, fac)
     od, stations = _network_od(Graph.from_edges(edges))
     stations = stations[stations["node"] >= 0]
@@ -233,13 +242,15 @@ def run_calibration() -> None:
     print(f"  Shortest legal route: spread {baseline['spread']:.3f} (raw {baseline['raw']:.3f})")
 
     rows = []
-    combos = list(itertools.product(*GRID.values()))
+    combos = list(itertools.product(*grid.values()))
     for i, (per_doubling, painted, walk) in enumerate(combos, 1):
         start = time.time()
         params = CostParams.from_config(
             per_doubling=per_doubling,
             exposure={**config.EXPOSURE, "painted": painted},
             walk_factor=walk,
+            # Carrying a bike up steps never costs less than walking it.
+            step_factor=max(config.STEP_FACTOR, walk),
         )
         e = build_edges(seg, fac, params)
         res = assignment.assign(Graph.from_edges(e), od, workers=WORKERS)
@@ -261,9 +272,14 @@ def run_calibration() -> None:
             f"walk {walk:3.1f}: spread {s['spread']:.3f} ({time.time() - start:.0f}s)",
             flush=True,
         )
-    results = pd.DataFrame(rows).sort_values("spread")
-    results.attrs["baseline_spread"] = baseline["spread"]
-    results.to_parquet(config.BUILD_DIR / "calibration.parquet")
+    knobs = ["per_doubling", "painted", "walk_factor"]
+    results = pd.DataFrame(rows)
+    path = config.BUILD_DIR / "calibration.parquet"
+    if path.exists():
+        results = pd.concat([pd.read_parquet(path), results]).drop_duplicates(knobs, keep="last")
+    results = results.sort_values("spread").reset_index(drop=True)
+    results["baseline_spread"] = baseline["spread"]
+    results.to_parquet(path)
     counters.assign(scored=scored, routed_shortest=base_routed).to_parquet(
         config.BUILD_DIR / "counters.parquet"
     )
@@ -346,7 +362,14 @@ def main() -> None:
     sub.add_parser("viz", help="export the built network for the viewer in viz/")
     sub.add_parser("traffic", help="score the traffic volume model on held-out streets")
     sub.add_parser("assign", help="route a year of Citi Bike trips over the network")
-    sub.add_parser("calibrate", help="score a grid of cost knobs against DOT's bike counters")
+    cal = sub.add_parser("calibrate", help="score a grid of cost knobs against DOT's bike counters")
+    for knob, values in GRID.items():
+        cal.add_argument(
+            f"--{knob.replace('_', '-')}",
+            dest=knob,
+            type=lambda s: [float(x) for x in s.split(",")],
+            help=f"comma-separated values (default {','.join(map(str, values))})",
+        )
     sub.add_parser("candidates", help="rank single-block upgrades by the stress they would save")
     args = parser.parse_args()
     if args.command == "build":
@@ -358,6 +381,6 @@ def main() -> None:
     elif args.command == "assign":
         run_assignment()
     elif args.command == "calibrate":
-        run_calibration()
+        run_calibration({k: getattr(args, k) for k in GRID if getattr(args, k)})
     elif args.command == "candidates":
         run_candidates()

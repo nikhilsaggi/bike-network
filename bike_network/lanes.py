@@ -72,3 +72,37 @@ def facilities(records: pd.DataFrame) -> pd.DataFrame:
 def load(path: Path) -> pd.DataFrame:
     """Read the downloaded DOT records and reduce them to facilities."""
     return facilities(pd.DataFrame(json.loads(path.read_text())))
+
+
+# LION's BikeLane classes that are a separated path whatever else they combine
+# with: 1 Class I, 4 link, and the Class I combinations 5, 8, 9 and 10.
+LION_SEPARATED = frozenset({"1", "4", "5", "8", "9", "10"})
+
+
+def with_lion_paths(fac: pd.DataFrame, seg: pd.DataFrame) -> pd.DataFrame:
+    """Add separated paths LION marks as bike network but DOT has no current record for.
+
+    LION and DOT's bike routes have drifted apart in segment ids (DOT's current
+    records name some ids LION 26C does not have, and the reverse), which left
+    stretches of greenway and bridge path -- the Williamsburg Bridge's
+    Manhattan end, Randalls Island, the East River Esplanade -- walk-only.
+    Only separated paths fall back to LION: they are physical and rarely
+    removed, while painted and signed on-street lanes do get removed and DOT is
+    the authority on those.
+    """
+    known = set(fac["segment_id"])
+    s = seg[
+        seg["bike_lane"].isin(LION_SEPARATED)
+        & seg["bike_dir"].isin(["FT", "TF", "TW"])
+        & ~seg["segment_id"].isin(known)
+    ].drop_duplicates("segment_id")
+    extra = pd.DataFrame(
+        {
+            "segment_id": s["segment_id"],
+            "fwd": s["bike_dir"].map({"FT": "separated", "TW": "separated"}).fillna("none"),
+            "rev": s["bike_dir"].map({"TF": "separated", "TW": "separated"}).fillna("none"),
+            "fwd_shared": False,
+            "rev_shared": False,
+        }
+    )
+    return pd.concat([fac, extra], ignore_index=True)
