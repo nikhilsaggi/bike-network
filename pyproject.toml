@@ -1,0 +1,57 @@
+[project]
+name = "bike-network"
+version = "0.1.0"
+description = "A directed NYC street network weighted by how safe each block is to ride"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "geopandas>=1.0",
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "pyarrow>=17",
+    "pyogrio>=0.10",
+    "scipy>=1.14",
+    "shapely>=2.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff==0.16.3"]
+
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["bike_network"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "E501",     # line length is the formatter's job
+    "T201",     # print is the CLI's progress output
+    "CPY001",   # MIT repo, no per-file headers
+    "COM812",   # conflicts with the formatter
+    "D203",     # incompatible with D211
+    "D213",     # incompatible with D212
+    "PLR2004",  # magic values: thresholds live in config.py with comments
+    "PLR0913",  # too many arguments
+    "PLR0917",  # too many positional arguments
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "D",        # no docstrings required in tests
+    "ANN",      # no annotations required in tests
+    "INP001",   # tests/ is not a package
+    "S101",     # assert is the test idiom
+    "PLC2701",  # tests exercise private functions
+    "SLF001",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
