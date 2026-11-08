@@ -134,3 +134,17 @@ def test_export_round_trips_geometry():
         match = min(decoded, key=lambda d: np.abs(d[0] - line[0]).sum())
         assert match.shape == line.shape
         assert np.abs(match - line).max() < 1e-5
+
+
+def test_trips_land_on_their_own_direction():
+    seg = pd.DataFrame({"segment_id": ["0000001", "0000002"]})
+    flows = pd.DataFrame(
+        {
+            "segment_id": ["0000001", "0000001", "0000002"],
+            "dir": ["fwd", "rev", "rev"],
+            "trips": [10.4, 3.0, 7.0],
+        }
+    )
+    fwd, rev = viz._per_direction(seg, flows, "trips")
+    assert fwd.tolist() == [10, 0]
+    assert rev.tolist() == [3, 7]

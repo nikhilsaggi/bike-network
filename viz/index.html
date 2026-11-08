@@ -19,6 +19,8 @@
   --line-red: #b42b2a;
   --line-faint: #dfddd6;
   --line-walk: #161614;
+  --flow-lo: #b7d3f6;
+  --flow-hi: #0d366b;
   --font-ui: "Overpass", "Helvetica Neue", Arial, sans-serif;
   --font-num: "Overpass Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --rail: 360px;
@@ -28,12 +30,14 @@
     --plane: #0f0f0e; --surface: #161615; --ink: #efeee9; --ink-2: #c1bfb8; --ink-3: #8e8c85;
     --rule: #2f2e2b; --accent: #6da7ec; --line-blue: #6da7ec; --line-mid: #5c5b56;
     --line-red: #f07a72; --line-faint: #2b2a27; --line-walk: #f6f5f0; color-scheme: dark;
+    --flow-lo: #184f95; --flow-hi: #cde2fb;
   }
 }
 :root[data-theme="dark"] {
   --plane: #0f0f0e; --surface: #161615; --ink: #efeee9; --ink-2: #c1bfb8; --ink-3: #8e8c85;
   --rule: #2f2e2b; --accent: #6da7ec; --line-blue: #6da7ec; --line-mid: #5c5b56;
   --line-red: #f07a72; --line-faint: #2b2a27; --line-walk: #f6f5f0; color-scheme: dark;
+  --flow-lo: #184f95; --flow-hi: #cde2fb;
 }
 html, body { height: 100%; }
 [hidden] { display: none !important; }
@@ -47,6 +51,7 @@ body {
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 16px;
   display: flex; flex-direction: column; gap: 22px;
 }
+#rail > * { flex-shrink: 0; } /* a scrolling flex column would otherwise squash its children */
 #map { position: relative; background: var(--surface); min-width: 0; grid-column: 2; grid-row: 1; }
 #rail { grid-column: 1; grid-row: 1; }
 #map > canvas { position: absolute; inset: 0; z-index: 1; }
@@ -78,6 +83,7 @@ section { display: flex; flex-direction: column; }
 .ramp-ends span:first-child { left: 0; }
 .ramp-ends span:last-child { right: 0; }
 .ramp-ticks span.at-quiet { transform: none; }
+.ramp-ticks span.c { transform: translateX(-50%); }
 .key { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px 10px; align-items: center; margin-top: 12px; }
 .key i { display: block; height: 0; border-top-style: solid; }
 .key .walkwin { border-top-width: 3px; border-color: var(--line-walk); }
@@ -138,6 +144,32 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   pointer-events: none; text-align: center; padding: 16px;
 }
 .hint { position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); top: 12px; font-size: 11px; color: var(--ink-3); background: var(--plane); padding: 3px 7px; border-radius: 3px; border: 1px solid var(--rule); }
+.seg { display: flex; border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; }
+.seg button { flex: 1; border: 0; border-radius: 0; background: var(--surface); color: var(--ink-2); padding: 7px 8px; }
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--plane); }
+.seg.small button { font-size: 12px; padding: 5px 6px; }
+.note { font-size: 12px; color: var(--ink-3); line-height: 1.45; margin: 8px 0 0; }
+#flowRamp { height: 10px; border-radius: 2px; margin-top: 12px; }
+.share { width: 100%; border-collapse: collapse; font-size: 12px; }
+.share th { text-align: right; font-weight: 600; color: var(--ink-3); padding: 0 0 6px; font-size: 11px; }
+.share th:first-child { text-align: left; }
+.share td { padding: 3px 0; }
+.share td.v { text-align: right; width: 34%; font-family: var(--font-num); }
+.share .bar { display: block; height: 3px; margin-top: 3px; border-radius: 2px; background: var(--ink-3); margin-left: auto; }
+.share td.v.safest .bar { background: var(--accent); }
+#top { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+#top button {
+  width: 100%; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; align-items: baseline;
+  text-align: left; border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; background: none;
+  padding: 7px 0; font-weight: 400;
+}
+#top button:hover .tname { text-decoration: underline; }
+#top .rank { color: var(--ink-3); font-family: var(--font-num); font-size: 12px; }
+#top .tname { min-width: 0; }
+#top .tname small { display: block; color: var(--ink-3); font-size: 11px; }
+#top .tv { font-family: var(--font-num); font-size: 12px; text-align: right; }
+#top .tv small { display: block; color: var(--ink-3); font-size: 11px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
@@ -155,7 +187,36 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     <p class="src" id="src">LION street map · NYC DOT bike routes</p>
   </header>
 
-  <section aria-labelledby="legend-h">
+  <div class="seg" role="group" aria-label="What the map shows">
+    <button type="button" id="modeCost" aria-pressed="true">Cost</button>
+    <button type="button" id="modeTrips" aria-pressed="false">Citi Bike trips</button>
+  </div>
+
+  <section class="trips-only" aria-labelledby="flow-h" hidden>
+    <h2 id="flow-h">Trips a day, each direction</h2>
+    <div class="seg small" role="group" aria-label="Which routing">
+      <button type="button" data-flow="safest" aria-pressed="true">Safest routes</button>
+      <button type="button" data-flow="shortest" aria-pressed="false">Shortest routes</button>
+      <button type="button" data-flow="diff" aria-pressed="false">Difference</button>
+    </div>
+    <div id="flowRamp"></div>
+    <div class="ramp-ticks num" id="flowTicks"></div>
+    <div class="ramp-ends" id="flowEnds"></div>
+    <p class="note" id="flowNote"></p>
+  </section>
+
+  <section class="trips-only" aria-labelledby="share-h" hidden>
+    <h2 id="share-h">Where the trip-km go</h2>
+    <table class="share" id="share"></table>
+  </section>
+
+  <section class="trips-only" aria-labelledby="top-h" hidden>
+    <h2 id="top-h">Busiest bike facilities</h2>
+    <ol id="top"></ol>
+    <p class="note">Trip-km a year on the facility, and the busiest block's trips a day. Select one to go to it.</p>
+  </section>
+
+  <section class="cost-only" aria-labelledby="legend-h">
     <h2 id="legend-h">Cost per metre ridden</h2>
     <div class="ramp" id="ramp"></div>
     <div class="ramp-ticks num" id="rampTicks"></div>
@@ -166,7 +227,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     </div>
   </section>
 
-  <section aria-labelledby="hist-h">
+  <section class="cost-only" aria-labelledby="hist-h">
     <h2 id="hist-h">Ridden km by cost</h2>
     <div class="headline"><strong id="kmRide">–</strong><span>km of one-way travel ridden</span></div>
     <div class="sub" id="meanLine"></div>
@@ -174,7 +235,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     <div class="hist-tip num" id="histTip">Hover a bar for its kilometres</div>
   </section>
 
-  <section aria-labelledby="knobs-h">
+  <section class="cost-only" aria-labelledby="knobs-h">
     <h2 id="knobs-h">Cost knobs</h2>
     <div id="knobs"></div>
     <div class="buttons">
@@ -217,6 +278,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   let data, defaults, k, edges, segPaths, counted;
   let factor, kind, colors, overlay = [];
   let version = 0, deckgl, selected = null;
+  let mode = "cost", flowView = "safest", widths;
+  const FLOW_MAX = 3000;     // trips a day at which the trips ramp saturates
+  const DIFF_MAX = 1000;     // trips a day of difference at which it saturates
   let palette;
 
   // ---------- colour ----------
@@ -252,6 +316,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     palette = {
       blue: rgbToOklab(get("--line-blue")), mid: rgbToOklab(get("--line-mid")),
       red: rgbToOklab(get("--line-red")), faint: get("--line-faint"), walk: get("--line-walk"),
+      flowLo: rgbToOklab(get("--flow-lo")), flowHi: rgbToOklab(get("--flow-hi")),
       blueHex: cs.getPropertyValue("--line-blue").trim(), midHex: cs.getPropertyValue("--line-mid").trim(),
       redHex: cs.getPropertyValue("--line-red").trim(),
     };
@@ -323,6 +388,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
       } else { kind[i] = 2; factor[i] = r.factor; rgb = palette.faint; kmWalkOnly += len; }
       colors[4 * i] = rgb[0]; colors[4 * i + 1] = rgb[1]; colors[4 * i + 2] = rgb[2]; colors[4 * i + 3] = 255;
     }
+    if (mode === "trips") paintTrips();
     version++;
     document.getElementById("kmRide").textContent = Math.round(kmRide / 1000).toLocaleString();
     document.getElementById("meanLine").textContent =
@@ -412,14 +478,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
       new deck.PathLayer({
         id: "edges", data: edges, getPath: (e) => e.path, positionFormat: "XY",
         getColor: (e, { index }) => colors.subarray(4 * index, 4 * index + 4),
-        getWidth: (e, { index }) => (kind[index] === 2 ? 0.8 : 1.4),
+        getWidth: (e, { index }) => (mode === "trips" ? widths[index] : kind[index] === 2 ? 0.8 : 1.4),
         widthUnits: "pixels", widthMinPixels: 0.6, getOffset: OFFSET, extensions: [ext],
         capRounded: false, jointRounded: false, pickable: true, autoHighlight: true,
         highlightColor: [255, 196, 0, 255],
         updateTriggers: { getColor: version, getWidth: version },
       }),
       new deck.PathLayer({
-        id: "walkwin", data: overlay, getPath: (e) => e.path, positionFormat: "XY",
+        id: "walkwin", data: mode === "cost" ? overlay : [], getPath: (e) => e.path, positionFormat: "XY",
         getColor: palette.walk.concat(255), getWidth: 3, widthUnits: "pixels",
         getOffset: OFFSET * 1.4 / 3, extensions: [ext], pickable: false,
         updateTriggers: { getColor: version },
@@ -470,12 +536,146 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
         <dt>Speed limit</dt><dd>${traf === 0 ? "–" : speed > 0 ? speed + " mph" : "25 mph (default)"}</dd>
         <dt>Truck route</dt><dd>${TRUCK_LABEL[(p >> 2) & 3]}</dd>
         <dt>Traffic penalty</dt><dd>${fmt2(r.penalty)}</dd>
+        ${data.tf ? `<dt>Citi Bike trips a day</dt><dd>${perDay(e, "t").toLocaleString()} safest · ${perDay(e, "s").toLocaleString()} shortest</dd>` : ""}
       </dl>
       <div class="verdict">${verdict}</div>`;
     card.querySelector("h4").textContent = data.names[data.name[s]] || "Unnamed";
     card.querySelector(".x").onclick = () => { card.hidden = true; selected = null; };
     card.hidden = false;
   }
+
+  // ---------- trips ----------
+  // Routed Citi Bike trips a year in one direction of a segment; which routing
+  // by prefix: "t" safest, "s" shortest.
+  function perDay(e, which) {
+    const a = data[which + (e.d === 0 ? "f" : "r")];
+    return Math.round(a[e.s] / 365);
+  }
+  function logPos(v, max) { return Math.min(Math.log10(1 + Math.abs(v)) / Math.log10(1 + max), 1); }
+
+  function paintTrips() {
+    const m = edges.length;
+    if (!widths || widths.length !== m) widths = new Float32Array(m);
+    const diff = flowView === "diff";
+    for (let i = 0; i < m; i++) {
+      const e = edges[i];
+      const safe = data[e.d === 0 ? "tf" : "tr"][e.s] / 365;
+      const short = data[e.d === 0 ? "sf" : "sr"][e.s] / 365;
+      const v = diff ? safe - short : flowView === "safest" ? safe : short;
+      let rgb, w;
+      if (Math.abs(v) < 0.5) { rgb = palette.faint; w = 0.6; }
+      else if (diff) {
+        const t = logPos(v, DIFF_MAX);
+        rgb = mix(palette.mid, v > 0 ? palette.blue : palette.red, t);
+        w = 0.8 + 3.5 * Math.sqrt(Math.min(Math.abs(v) / DIFF_MAX, 1));
+      } else {
+        rgb = mix(palette.flowLo, palette.flowHi, logPos(v, FLOW_MAX));
+        w = 0.8 + 4 * Math.sqrt(Math.min(v / FLOW_MAX, 1));
+      }
+      colors[4 * i] = rgb[0]; colors[4 * i + 1] = rgb[1]; colors[4 * i + 2] = rgb[2]; colors[4 * i + 3] = 255;
+      widths[i] = w;
+    }
+    drawFlowLegend();
+  }
+
+  function drawFlowLegend() {
+    const diff = flowView === "diff", stops = [], ticks = [];
+    const css = (c) => `rgb(${c[0]} ${c[1]} ${c[2]})`;
+    if (diff) {
+      for (let i = -20; i <= 20; i++) {
+        const v = Math.sign(i) * (Math.pow(10, Math.abs(i) / 20 * Math.log10(1 + DIFF_MAX)) - 1);
+        const c = mix(palette.mid, i >= 0 ? palette.blue : palette.red, logPos(v, DIFF_MAX));
+        stops.push(`${css(c)} ${((i + 20) / 40 * 100).toFixed(1)}%`);
+      }
+      const at = (v) => 50 + Math.sign(v) * logPos(v, DIFF_MAX) * 50;
+      for (const v of [-1000, -10, 0, 10, 1000]) {
+        ticks.push(`<span style="left:${at(v).toFixed(1)}%">${v > 0 ? "+" : ""}${v.toLocaleString()}${Math.abs(v) === DIFF_MAX ? "+" : ""}</span>`);
+      }
+      document.getElementById("flowEnds").innerHTML = "<span>Fewer on the safest routes</span><span>More</span>";
+      document.getElementById("flowNote").textContent =
+        "Trips a day on the safest routes minus the shortest. Blue is where routing for safety sends riders; red is what it takes them off.";
+    } else {
+      for (let i = 0; i <= 20; i++) {
+        const c = mix(palette.flowLo, palette.flowHi, i / 20);
+        stops.push(`${css(c)} ${(i / 20 * 100).toFixed(1)}%`);
+      }
+      for (const v of [1, 10, 100, 1000]) {
+        ticks.push(`<span class="c" style="left:${(logPos(v, FLOW_MAX) * 100).toFixed(1)}%">${v.toLocaleString()}</span>`);
+      }
+      ticks.push(`<span style="left:100%">${FLOW_MAX.toLocaleString()}+</span>`);
+      document.getElementById("flowEnds").innerHTML = "";
+      document.getElementById("flowNote").textContent = flowView === "safest"
+        ? `Every ${data.flow.year} Citi Bike trip between two stations, on its cheapest route under config.py's costs. Moving the cost knobs does not re-route them.`
+        : "The same trips on the shortest route a bike may legally ride, ignoring traffic and lanes: the baseline the safety costs are judged against.";
+    }
+    document.getElementById("flowRamp").style.background = `linear-gradient(to right, ${stops.join(", ")})`;
+    document.getElementById("flowTicks").innerHTML = ticks.join("");
+  }
+
+  const SHARE_ROWS = [
+    ["separated", "Protected lane or path"], ["painted", "Painted lane"],
+    ["shared", "Sharrows or shared street"], ["none", "No bike facility"], ["walked", "Walked"],
+  ];
+  function buildTrips(flow) {
+    const pct = (v) => ((v || 0) * 100).toFixed(1) + "%";
+    const bar = (v) => `<span class="bar" style="width:${((v || 0) * 100).toFixed(1)}%"></span>`;
+    document.getElementById("share").innerHTML =
+      `<thead><tr><th>Facility</th><th>Safest</th><th>Shortest</th></tr></thead><tbody>` +
+      SHARE_ROWS.map(([key, label]) => {
+        const a = flow.share.safest[key], b = flow.share.shortest[key];
+        return `<tr><td>${label}</td><td class="v safest">${pct(a)}${bar(a)}</td><td class="v">${pct(b)}${bar(b)}</td></tr>`;
+      }).join("") + "</tbody>";
+    const list = document.getElementById("top");
+    flow.top.forEach((row, i) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<button type="button"><span class="rank">${i + 1}</span>
+        <span class="tname"></span>
+        <span class="tv">${(row.trip_km / 1e6).toFixed(1)}M km<small>${row.peak_day.toLocaleString()}/day</small></span></button>`;
+      const name = li.querySelector(".tname");
+      name.textContent = titleCase(row.street);
+      const small = document.createElement("small"); small.textContent = row.boro; name.appendChild(small);
+      li.querySelector("button").onclick = () => flyTo(row.bbox);
+      list.appendChild(li);
+    });
+    document.querySelectorAll("[data-flow]").forEach((b) => {
+      b.onclick = () => {
+        flowView = b.dataset.flow;
+        document.querySelectorAll("[data-flow]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+        recompute();
+      };
+    });
+  }
+  function titleCase(s) {
+    return s.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase())
+      .replace(/\b(\d+)(St|Nd|Rd|Th)\b/g, (m, n, x) => n + x.toLowerCase())
+      .replace(/(?!^)\b(Of|The|And)\b/g, (w) => w.toLowerCase());
+  }
+  function flyTo([w, s, e, n]) {
+    const el = document.getElementById("map");
+    const vp = new deck.WebMercatorViewport({ width: el.clientWidth, height: el.clientHeight });
+    const fit = vp.fitBounds([[w, s], [e, n]], { padding: Math.min(60, el.clientWidth / 6) });
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    deckgl.setProps({
+      initialViewState: {
+        longitude: fit.longitude, latitude: fit.latitude, zoom: Math.min(fit.zoom, 16), minZoom: 9, maxZoom: 19,
+        transitionDuration: reduce ? 0 : 900, transitionInterpolator: new deck.FlyToInterpolator(),
+      },
+    });
+    if (window.matchMedia("(max-width: 720px)").matches) el.scrollIntoView({ behavior: reduce ? "auto" : "smooth" });
+  }
+  function setMode(next) {
+    mode = next;
+    document.getElementById("modeCost").setAttribute("aria-pressed", String(mode === "cost"));
+    document.getElementById("modeTrips").setAttribute("aria-pressed", String(mode === "trips"));
+    document.querySelectorAll(".cost-only").forEach((el) => { el.hidden = mode !== "cost"; });
+    document.querySelectorAll(".trips-only").forEach((el) => { el.hidden = mode !== "trips"; });
+    document.querySelector(".lede").textContent = mode === "cost"
+      ? "Every street is drawn once per direction, on the rider's right-hand side. Colour is how much a metre of riding costs, against a quiet two-way street."
+      : "Every street is drawn once per direction, on the rider's right-hand side. Colour and width are Citi Bike trips a day routed along it.";
+    recompute();
+  }
+  document.getElementById("modeCost").onclick = () => setMode("cost");
+  document.getElementById("modeTrips").onclick = () => setMode("trips");
 
   // ---------- knobs ----------
   function buildKnobs() {
@@ -550,6 +750,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     counted = new Map(d.counted.map(([s, dir, v]) => [2 * s + dir, v]));
     decode(d);
     buildKnobs();
+    if (d.flow) buildTrips(d.flow); else document.getElementById("modeTrips").hidden = true;
     deckgl = new deck.Deck({
       parent: document.getElementById("map"),
       views: new deck.MapView({ repeat: false }),

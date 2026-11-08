@@ -102,16 +102,84 @@ def _morton(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     return spread(x) | (spread(y) << np.uint64(1))
 
 
+BORO = {1: "Manhattan", 2: "Bronx", 3: "Brooklyn", 4: "Queens", 5: "Staten Island"}
+TOP_FACILITIES = 15
+
+
+def _per_direction(
+    seg: pd.DataFrame, flows: pd.DataFrame, col: str
+) -> tuple[np.ndarray, np.ndarray]:
+    """Trips a year in each direction of every segment row, 0 where none."""
+    f = flows.drop_duplicates(["segment_id", "dir"]).set_index(["segment_id", "dir"])[col]
+    out = []
+    for d in ("fwd", "rev"):
+        idx = pd.MultiIndex.from_arrays([seg["segment_id"], [d] * len(seg)])
+        out.append(np.rint(f.reindex(idx).fillna(0).to_numpy()).astype(np.int64))
+    return out[0], out[1]
+
+
+def flow_summary(seg: gpd.GeoDataFrame, flows: pd.DataFrame) -> dict[str, Any]:
+    """Trip-km shares by facility, both routings, and the busiest bike facilities.
+
+    ``flows`` is the ``assign`` command's output. A facility is a street name in
+    a borough, summed over its directed edges with any bike facility; its
+    ``bbox`` frames the blocks that carry it, for the viewer to fly to.
+    """
+    kind = (
+        np.where(flows["mode"] == "walk", "walked", flows["facility"])
+        if "mode" in flows
+        else flows["facility"]
+    )
+    share = {}
+    for col in ("trips", "trips_shortest"):
+        km = pd.Series(flows[col].to_numpy() * flows["length_m"].to_numpy()).groupby(kind).sum()
+        share[col] = (km / km.sum()).round(4).to_dict()
+    on_lanes = flows[(flows["facility"] != "none") & (flows["trips"] > 0)]
+    on_lanes = on_lanes.assign(trip_km=on_lanes["trips"] * on_lanes["length_m"] / 1000)
+    top = (
+        on_lanes.groupby(["street", "boro"])
+        .agg(trip_km=("trip_km", "sum"), peak=("trips", "max"))
+        .sort_values("trip_km", ascending=False)
+        .head(TOP_FACILITIES)
+        .reset_index()
+    )
+    geom = seg.drop_duplicates("segment_id").set_index("segment_id").geometry.to_crs(4326)
+    rows = []
+    for r in top.itertuples():
+        ids = on_lanes.loc[
+            (on_lanes["street"] == r.street) & (on_lanes["boro"] == r.boro), "segment_id"
+        ]
+        w, s, e, n = geom.reindex(ids.unique()).total_bounds
+        rows.append(
+            {
+                "street": r.street,
+                "boro": BORO.get(int(r.boro), ""),
+                "trip_km": round(r.trip_km),
+                "peak_day": round(r.peak / 365),
+                "bbox": [round(w, 5), round(s, 5), round(e, 5), round(n, 5)],
+            }
+        )
+    return {
+        "year": config.DEMAND_YEAR,
+        "trips": round(flows.attrs.get("trips_routed", 0)),
+        "share": {"safest": share["trips"], "shortest": share["trips_shortest"]},
+        "top": rows,
+    }
+
+
 def export(
     seg: gpd.GeoDataFrame,
     fac: pd.DataFrame,
     edges: pd.DataFrame,
     counted: pd.DataFrame | None = None,
+    flows: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Build the viewer's JSON payload.
 
     ``counted`` (``segment_id, dir, volume_counted``) adds DOT's measured
-    volumes where they exist, for display.
+    volumes where they exist, for display. ``flows`` (the ``assign``
+    command's ``flows.parquet``) adds routed trips a year per direction under
+    both routings and a summary for the Trips view.
     """
     seg = seg[seg["segment_id"].isin(edges["segment_id"])].reset_index(drop=True)
     attrs = pack_attributes(seg, fac)
@@ -147,7 +215,19 @@ def export(
             [int(pos[s]), 0 if d == "fwd" else 1, round(v)]
             for s, d, v in zip(c["segment_id"], c["dir"], c["volume_counted"], strict=True)
         ]
+    trips: dict[str, Any] = {}
+    if flows is not None:
+        tf, tr = _per_direction(seg, flows, "trips")
+        sf, sr = _per_direction(seg, flows, "trips_shortest")
+        trips = {
+            "tf": tf[order].tolist(),
+            "tr": tr[order].tolist(),
+            "sf": sf[order].tolist(),
+            "sr": sr[order].tolist(),
+            "flow": flow_summary(seg, flows),
+        }
     return {
+        **trips,
         "lion_release": config.LION_RELEASE,
         "origin": [int(origin[0]), int(origin[1])],
         "quant": QUANT,

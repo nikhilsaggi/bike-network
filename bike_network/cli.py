@@ -71,7 +71,13 @@ def build_viz() -> None:
     edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet", columns=["segment_id"])
     fac = lanes.load(sources.ensure_bike_routes())
     counted = pd.read_parquet(config.BUILD_DIR / "traffic.parquet")
-    payload = viz.export(seg, fac, edges, counted)
+    flows_path = config.BUILD_DIR / "flows.parquet"
+    flows = None
+    if flows_path.exists():
+        flows = pd.read_parquet(flows_path)
+        routes = pd.read_parquet(config.BUILD_DIR / "routes.parquet", columns=["trips"])
+        flows.attrs["trips_routed"] = float(routes["trips"].sum())
+    payload = viz.export(seg, fac, edges, counted, flows)
     viz.write(payload)
     print(f"Wrote {config.BUILD_DIR / 'viz'}: {payload['n']:,} segments")
 
@@ -150,7 +156,7 @@ def run_assignment() -> None:
     for kind, row in share.iterrows():
         print(f"    {kind:10s} {row['safest']:6.1%} {row['shortest']:9.1%}")
 
-    flows = edges[["segment_id", "dir", "street", "facility", "length_m"]].copy()
+    flows = edges[["segment_id", "dir", "street", "facility", "mode", "length_m"]].copy()
     flows["trips"] = safe.edge_trips
     flows["trips_shortest"] = short.edge_trips
     flows = flows.merge(seg.drop_duplicates("segment_id"), on="segment_id", how="left")

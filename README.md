@@ -30,7 +30,10 @@ for the edge-cost viewer (`viz/index.html`): every street drawn once per
 direction, coloured by cost, with a slider for each knob below. Serve that
 folder (`python -m http.server -d data/build/viz`) and open it. The viewer
 recomputes costs in the browser with `viz/cost.js`, which
-`tests/test_viz.py` holds to the Python model.
+`tests/test_viz.py` holds to the Python model. Once `assign` has run, its Citi Bike
+trips mode shows routed trips a day per direction under the safest and the
+shortest routing, their difference, where the trip-km go by facility, and
+the busiest bike facilities.
 
 ## Routing Citi Bike trips
 
