@@ -5,7 +5,13 @@ from conftest import dot_row, lion_row
 from scipy.sparse import csgraph
 
 from bike_network import config, lanes, lion
-from bike_network.network import Graph, build_edges, direction_volumes, traffic_penalty
+from bike_network.network import (
+    Graph,
+    build_edges,
+    direction_volumes,
+    mark_shared_streets,
+    traffic_penalty,
+)
 
 
 def build(lion_rows, dot_rows=(), volumes=None):
@@ -192,3 +198,43 @@ def test_node_index_rejects_unknown_ids():
     g = Graph.from_edges(build([lion_row(1, 1, 2)]))
     with pytest.raises(KeyError):
         g.node_index(np.array([99]))
+
+
+def test_shared_street_is_priced_quiet():
+    seg = lion.prepare(
+        pd.DataFrame(
+            [
+                lion_row(1, 1, 2, "A", TRUCK_ROUTE_TYPE="2"),  # shared street: Shared both ways
+                lion_row(2, 2, 3, "T", TRUCK_ROUTE_TYPE="2"),  # sharrows on a two-way street
+                lion_row(3, 3, 4, "W"),  # sharrows with traffic only
+                lion_row(4, 10, 11, "A", street="BROADWAY"),  # shared street
+                lion_row(5, 11, 12, "A", street="BROADWAY"),  # a block DOT coded otherwise
+                lion_row(6, 12, 13, "A", street="BROADWAY"),  # shared street
+                lion_row(7, 13, 14, "A", street="BROADWAY"),  # past its end: untouched
+                lion_row(8, 20, 21, "A"),  # a signed route both ways is not a shared street
+            ]
+        )
+    )
+    fac = lanes.facilities(
+        pd.DataFrame(
+            [
+                dot_row(1, "Shared", "Shared"),
+                dot_row(2, "Shared", "Shared"),
+                dot_row(3, "Shared"),
+                dot_row(4, "Shared", "Shared"),
+                dot_row(5, "Protected", "Shared"),
+                dot_row(6, "Shared", "Shared"),
+                dot_row(8, "Signed Route", "Signed Route"),
+            ]
+        )
+    )
+    busy = pd.DataFrame(
+        [(f"{s:07d}", d, 16.0 * REF) for s in range(1, 9) for d in ("fwd", "rev")],
+        columns=["segment_id", "dir", "volume_est"],
+    )
+    seg = mark_shared_streets(direction_volumes(seg, busy), fac)
+    assert list(seg["shared_street"]) == [True, False, False, True, True, True, False, False]
+    e = build_edges(seg, fac)
+    assert edge(e, 1, "fwd")["factor"] == pytest.approx(QUIET)  # northbound on a southbound street
+    assert edge(e, 1, "rev")["factor"] == pytest.approx(QUIET)
+    assert edge(e, 2, "fwd")["factor"] > 2

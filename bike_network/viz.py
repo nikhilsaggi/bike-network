@@ -35,6 +35,7 @@ FAC_CODE = {"none": 0, "shared": 1, "painted": 2, "separated": 3}
 BIT_STEP = 1 << 4
 BIT_VEHICLE_ONLY = 1 << 5
 BIT_HIGHWAY = 1 << 6
+BIT_SHARED_STREET = 1 << 11  # display only: its volume and truck term are already quiet
 
 
 def knobs() -> dict[str, Any]:
@@ -66,6 +67,7 @@ def pack_attributes(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
     fwd = seg["fwd"].fillna("none").map(FAC_CODE).to_numpy(dtype=np.int64)
     rev = seg["rev"].fillna("none").map(FAC_CODE).to_numpy(dtype=np.int64)
     rw = seg["rw_type"].to_numpy()
+    shared = seg["shared_street"].to_numpy() if "shared_street" in seg else np.zeros(len(seg), bool)
     packed = (
         traf
         | (truck << 2)
@@ -74,6 +76,7 @@ def pack_attributes(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
         | np.where(rw == config.RW_HIGHWAY, BIT_HIGHWAY, 0)
         | (fwd << 7)
         | (rev << 9)
+        | np.where(shared, BIT_SHARED_STREET, 0)
     )
     return pd.DataFrame(
         {

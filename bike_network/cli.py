@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from . import config, lanes, lion, sources, traffic, viz
-from .network import Graph, build_edges, direction_volumes
+from .network import Graph, build_edges, direction_volumes, mark_shared_streets
 
 
 def _summary(seg: pd.DataFrame, fac: pd.DataFrame, edges: pd.DataFrame, graph: Graph) -> None:
@@ -50,7 +50,8 @@ def build() -> None:
         f"  Volume model trained on {len(counted):,} counted directions; "
         f"estimates for {len(est):,} car directions"
     )
-    seg = direction_volumes(seg, est)
+    seg = mark_shared_streets(direction_volumes(seg, est), fac)
+    print(f"  {int(seg['shared_street'].sum())} segments priced as DOT shared streets")
     edges = build_edges(seg, fac)
     graph = Graph.from_edges(edges)
     _summary(seg, fac, edges, graph)

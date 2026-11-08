@@ -463,7 +463,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     card.innerHTML = `<button type="button" class="x" aria-label="Close">×</button>
       <h4></h4><div class="dir">${heading(e.path)} · <span class="num">${Math.round(len)} m</span></div>
       <dl>
-        <dt>Bike facility this way</dt><dd>${FACILITY_LABEL[r.facility]}</dd>
+        <dt>Bike facility this way</dt><dd>${p & (1 << 11) ? "Shared street, local traffic only" : FACILITY_LABEL[r.facility]}</dd>
         <dt>Cars</dt><dd>${cars}</dd>
         <dt>Travel lanes</dt><dd>${traf === 0 ? "–" : lanes > 0 ? lanes : "not recorded"}</dd>
         ${traffic}

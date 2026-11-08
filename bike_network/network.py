@@ -53,6 +53,45 @@ def direction_volumes(seg: pd.DataFrame, volumes: pd.DataFrame | None) -> pd.Dat
     return seg
 
 
+def mark_shared_streets(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
+    """Flag DOT shared streets and price their traffic as a quiet street's.
+
+    DOT codes a shared street (Broadway in Midtown and the Flatiron, Berry
+    Street) as ``Shared``, the same name it gives sharrows, but a shared
+    street offers riding in both directions on a street cars use one way,
+    which sharrows never do. LION still describes those blocks as the avenue
+    they were (lanes, width, truck route), so the volume model prices them
+    as one; through traffic is barred, so they take the quiet reference
+    volume and no truck term instead.
+    """
+    f = seg[["segment_id"]].merge(fac, on="segment_id", how="left")
+    against = ((seg["traf_dir"] == "W") & f["rev_shared"].eq(other=True).to_numpy()) | (
+        (seg["traf_dir"] == "A") & f["fwd_shared"].eq(other=True).to_numpy()
+    )
+    # A block between two shared-street blocks of the same street belongs to
+    # it even when DOT recorded something else there (Broadway at 19th-20th
+    # St carries a northbound protected lane inside the shared street).
+    marked = seg[against.to_numpy()]
+    ends = pd.concat(
+        [
+            marked[["street", "u"]].rename(columns={"u": "node"}),
+            marked[["street", "v"]].rename(columns={"v": "node"}),
+        ]
+    )
+    touch = set(zip(ends["street"], ends["node"], strict=True))
+    between = [
+        (s, a) in touch and (s, b) in touch
+        for s, a, b in zip(seg["street"], seg["u"], seg["v"], strict=True)
+    ]
+    against = against.to_numpy() | (
+        np.array(between, dtype=bool) & seg["traf_dir"].isin(["W", "A"]).to_numpy()
+    )
+    seg = seg.assign(shared_street=against)
+    seg.loc[against, ["vol_fwd", "vol_rev"]] = float(config.VOLUME_REFERENCE)
+    seg.loc[against, "truck_route"] = ""
+    return seg
+
+
 def traffic_penalty(seg: pd.DataFrame, volume: pd.Series) -> pd.Series:
     """Traffic penalty for one direction of each segment; 0 where no car is allowed."""
     doublings = np.log2(volume / config.VOLUME_REFERENCE).clip(lower=0)

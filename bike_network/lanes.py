@@ -22,6 +22,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+SHARED = "Shared"
+
+
 def _classify(names: pd.Series) -> pd.Series:
     cls = names.map(config.FACILITY_CLASS)
     unknown = names.notna() & (names != "") & cls.isna()
@@ -48,6 +51,9 @@ def facilities(records: pd.DataFrame) -> pd.DataFrame:
             "segment_id": cur["segmentid"].astype(str).str.strip().str.zfill(7),
             "fwd": _best(_classify(cur["ft_facilit"]), _classify(cur["ft2facilit"])),
             "rev": _best(_classify(cur["tf_facilit"]), _classify(cur["tf2facilit"])),
+            # DOT's literal "Shared" (not the class): how a shared street shows up.
+            "fwd_shared": (cur["ft_facilit"] == SHARED) | (cur["ft2facilit"] == SHARED),
+            "rev_shared": (cur["tf_facilit"] == SHARED) | (cur["tf2facilit"] == SHARED),
         }
     )
     rank = config.FACILITY_RANK
@@ -55,8 +61,12 @@ def facilities(records: pd.DataFrame) -> pd.DataFrame:
     agg = out.groupby("segment_id").agg(
         fwd=("fwd", lambda s: max(s.map(rank))),
         rev=("rev", lambda s: max(s.map(rank))),
+        fwd_shared=("fwd_shared", "any"),
+        rev_shared=("rev_shared", "any"),
     )
-    return agg.apply(lambda col: col.map(inverse)).reset_index()
+    agg["fwd"] = agg["fwd"].map(inverse)
+    agg["rev"] = agg["rev"].map(inverse)
+    return agg.reset_index()
 
 
 def load(path: Path) -> pd.DataFrame:

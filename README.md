@@ -83,4 +83,10 @@ estimate ranks streets better than it measures any one of them.
   not have.
 - Staten Island and Governors Island are their own components: ferries are
   not ridden, so they are left out.
+- LION lags street redesigns. Lane counts, width and truck routes can
+  describe a street as it was before DOT rebuilt it, and the traffic model
+  inherits that: a road diet keeps its old estimate. The one case handled is
+  DOT's shared streets (Broadway in Midtown and the Flatiron, Berry Street):
+  a `Shared` facility offered against one-way car traffic marks one, and it
+  is priced as a quiet street.
 - No turn or intersection costs yet.
