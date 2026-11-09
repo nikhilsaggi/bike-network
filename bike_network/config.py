@@ -114,3 +114,21 @@ TRUCK_PENALTY = {"1": 0.2, "2": 0.3, "3": 0.5}
 # carrying the bike, set above walking by judgment.
 WALK_FACTOR = 8.0  # calibrated: see docs/methodology.md
 STEP_FACTOR = 12.0
+
+# --- Corridors (bike_network.corridors) ------------------------------------------
+
+# A sharper bend ends a street's run. Broadway's own bends (Madison Square,
+# Columbus Circle) reach 59 degrees between LION nodes.
+CORRIDOR_MAX_TURN_DEG = 60
+# Every project costs at least about a block. Without a floor, a 9 m sliver
+# at an intersection outranks every corridor on saving per new metre.
+CORRIDOR_MIN_PROJECT_M = 100
+# The build-out's default budget: about 50 miles, NYC's Streets Plan target
+# for protected bike lanes a year.
+CORRIDOR_BUDGET_KM = 80
+CORRIDOR_ROUND_KM = 10  # new lane per round before every street is scored again
+CORRIDOR_CANDIDATES = 2000  # best stretches checked for shared riders each round
+# A stretch sharing more of its riders than this with one already taken this
+# round waits for the next round's rescore, which sees the first one built.
+CORRIDOR_MAX_SHARED = 0.1
+MANHATTAN_GRID_DEG = 29  # Manhattan's "north" is 29 degrees east of true north

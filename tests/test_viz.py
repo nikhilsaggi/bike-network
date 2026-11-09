@@ -148,3 +148,51 @@ def test_trips_land_on_their_own_direction():
     fwd, rev = viz._per_direction(seg, flows, "trips")
     assert fwd.tolist() == [10, 0]
     assert rev.tolist() == [3, 7]
+
+
+def test_plan_blocks_point_at_their_own_segment_and_direction():
+    seg, fac = segments()
+    seg = seg.head(3).copy()
+    lines = [
+        [(980000, 200000), (981000, 200000)],
+        [(981000, 200000), (982000, 201000)],
+        [(990000, 190000), (991000, 191000)],
+    ]
+    gseg = gpd.GeoDataFrame(seg, geometry=[MultiLineString([pts]) for pts in lines], crs=2263)
+    edges = build_edges(seg, fac)
+    ids = list(seg["segment_id"])
+    plan = {
+        "corridors": pd.DataFrame(
+            {
+                "corridor": [1],
+                "street": ["STREET"],
+                "boro": [1],
+                "heading": ["S"],
+                "from_street": ["A"],
+                "to_street": ["B"],
+                "new_m": [1000.0],
+                "gaps": [1],
+                "round": [1],
+                "trips_alone": [365.0],
+                "saved_alone": [5000.0],
+                "blocks_alone": [1000.0],
+                "saved_in_plan": [5000.0],
+            }
+        ),
+        "blocks": pd.DataFrame(
+            {
+                "segment_id": [ids[2], ids[0]],
+                "dir": ["rev", "fwd"],
+                "corridor": [1, 1],
+                "new": [True, False],
+            }
+        ),
+        "summary": {"budget_km": 80},
+    }
+    payload = viz.export(gseg, fac, edges, plan=plan)
+    p = payload["plan"]
+    assert p["budget_km"] == 80
+    assert p["corridors"][0]["trips_day"] == 1
+    street_of = dict(zip(seg["segment_id"], seg["street"], strict=True))
+    got = {(payload["names"][payload["name"][s]], d, new) for s, d, _, new in p["blocks"]}
+    assert got == {(street_of[ids[2]], 1, 1), (street_of[ids[0]], 0, 0)}

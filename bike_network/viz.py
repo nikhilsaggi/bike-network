@@ -167,19 +167,63 @@ def flow_summary(seg: gpd.GeoDataFrame, flows: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def plan_layer(seg: gpd.GeoDataFrame, rank: pd.Series, plan: dict[str, Any]) -> dict[str, Any]:
+    """Shape the ``corridors`` command's build-out for the viewer's New corridors view.
+
+    ``plan`` holds ``corridors`` and ``blocks`` (its two parquet files) and
+    ``summary`` (its JSON). ``rank`` maps segment id to the payload's
+    segment order. Each block is ``[segment, direction, corridor index,
+    new]``, where ``new`` is 0 for a block the corridor bridges that was
+    protected already.
+    """
+    cors, blocks = plan["corridors"], plan["blocks"]
+    blocks = blocks[blocks["segment_id"].isin(rank.index)]
+    geom = seg.drop_duplicates("segment_id").set_index("segment_id").geometry.to_crs(4326)
+    rows = []
+    for r in cors.itertuples():
+        ids = blocks.loc[blocks["corridor"] == r.corridor, "segment_id"].unique()
+        w, s, e, n = geom.reindex(ids).total_bounds
+        rows.append(
+            {
+                "street": r.street,
+                "boro": BORO.get(int(r.boro), ""),
+                "heading": r.heading,
+                "from": r.from_street,
+                "to": r.to_street,
+                "new_m": round(r.new_m),
+                "gaps": int(r.gaps),
+                "round": int(r.round),
+                "trips_day": round(r.trips_alone / 365),
+                "saved": round(r.saved_alone / 1000),
+                "blocks": round(r.blocks_alone / 1000),
+                "in_plan": round(r.saved_in_plan / 1000),
+                "bbox": [round(w, 5), round(s, 5), round(e, 5), round(n, 5)],
+            }
+        )
+    cells = [
+        [int(rank[sid]), 0 if d == "fwd" else 1, int(c) - 1, int(new)]
+        for sid, d, c, new in zip(
+            blocks["segment_id"], blocks["dir"], blocks["corridor"], blocks["new"], strict=True
+        )
+    ]
+    return {**plan["summary"], "corridors": rows, "blocks": cells}
+
+
 def export(
     seg: gpd.GeoDataFrame,
     fac: pd.DataFrame,
     edges: pd.DataFrame,
     counted: pd.DataFrame | None = None,
     flows: pd.DataFrame | None = None,
+    plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the viewer's JSON payload.
 
     ``counted`` (``segment_id, dir, volume_counted``) adds DOT's measured
     volumes where they exist, for display. ``flows`` (the ``assign``
     command's ``flows.parquet``) adds routed trips a year per direction under
-    both routings and a summary for the Trips view.
+    both routings and a summary for the Trips view. ``plan`` adds the
+    ``corridors`` command's build-out (see :func:`plan_layer`).
     """
     seg = seg[seg["segment_id"].isin(edges["segment_id"])].reset_index(drop=True)
     attrs = pack_attributes(seg, fac)
@@ -226,8 +270,13 @@ def export(
             "sr": sr[order].tolist(),
             "flow": flow_summary(seg, flows),
         }
+    extra: dict[str, Any] = {}
+    if plan is not None:
+        pos = pd.Series(rank, index=seg["segment_id"])
+        extra["plan"] = plan_layer(seg, pos[~pos.index.duplicated()], plan)
     return {
         **trips,
+        **extra,
         "lion_release": config.LION_RELEASE,
         "origin": [int(origin[0]), int(origin[1])],
         "quant": QUANT,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import json
 import os
 import time
 
@@ -15,6 +16,7 @@ from . import (
     calibration,
     candidates,
     config,
+    corridors,
     demand,
     lanes,
     lion,
@@ -95,7 +97,14 @@ def build_viz() -> None:
         flows = pd.read_parquet(flows_path)
         routes = pd.read_parquet(config.BUILD_DIR / "routes.parquet", columns=["trips"])
         flows.attrs["trips_routed"] = float(routes["trips"].sum())
-    payload = viz.export(seg, fac, edges, counted, flows)
+    plan = None
+    if (config.BUILD_DIR / "corridors.json").exists():
+        plan = {
+            "corridors": pd.read_parquet(config.BUILD_DIR / "corridors.parquet"),
+            "blocks": pd.read_parquet(config.BUILD_DIR / "corridor_edges.parquet"),
+            "summary": json.loads((config.BUILD_DIR / "corridors.json").read_text()),
+        }
+    payload = viz.export(seg, fac, edges, counted, flows, plan)
     viz.write(payload)
     print(f"Wrote {config.BUILD_DIR / 'viz'}: {payload['n']:,} segments")
 
@@ -354,6 +363,121 @@ def run_candidates() -> None:
     print(f"Wrote {config.BUILD_DIR / 'candidates.parquet'}")
 
 
+def run_corridors(budget_km: float, seed: int = 0) -> None:
+    """Build out protected corridors greedily, best stress saved per new metre first."""
+    edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet")
+    seg = pd.read_parquet(
+        config.BUILD_DIR / "segments.parquet",
+        columns=["segment_id", "street", "u", "v", "traf_dir", "boro"],
+    )
+    graph = Graph.from_edges(edges)
+    od, _ = _network_od(graph)
+    xy = lion.read_nodes(sources.ensure_lion()).set_index("node")
+    table = corridors.street_runs(edges, seg, xy)
+    print(f"{table['run'].nunique():,} street runs over {len(table):,} directed blocks")
+    pairs = candidates.sample_pairs(od, seed=seed)
+    print(
+        f"Build-out: {budget_km:g} km of new protected lane, {len(pairs):,} sampled station pairs"
+    )
+    picks, final = corridors.build_out(edges, table, pairs, budget_km * 1000)
+    if picks.empty:
+        print("Nothing to build.")
+        return
+
+    runs = corridors.Runs.from_table(table, graph, edges)
+    plan = corridors.merge_picks(picks, runs.new, runs.ptr)
+    print("Scoring each corridor alone against today's network")
+    today = corridors.Distances.compute(graph, pairs)
+    plan[["saved_alone", "trips_alone", "blocks_alone"]] = [
+        corridors.stretch_value(runs, c.run, c.s, c.t, today) for c in plan.itertuples()
+    ]
+    weight, before = today.pairs["weight"].to_numpy(), today.cost
+    del today
+    after = corridors.Distances.compute(Graph.from_edges(final), pairs, reverse=False).cost
+    gain = before - after
+
+    names = corridors.cross_streets(seg)
+    first = runs.table.groupby("run").first()
+    rows, blocks = [], []
+    for i, c in enumerate(plan.itertuples(), start=1):
+        street, boro = first.loc[c.run, "street"], int(first.loc[c.run, "boro"])
+        part = runs.table[runs.table["run"] == c.run]
+        nodes = [*part["u"], part["v"].iloc[-1]]
+        a, b = nodes[c.s], nodes[c.t]
+        span = corridors.stretch_edges(runs, c.run, c.s, c.t)
+        e = edges.loc[span]
+        built = e["cost"].to_numpy() > np.maximum(e["length_m"].to_numpy(), 0.01) * (1 + 1e-9)
+        rows.append(
+            {
+                "corridor": i,
+                "street": street,
+                "boro": boro,
+                "heading": corridors.heading(
+                    xy.loc[b, "x"] - xy.loc[a, "x"], xy.loc[b, "y"] - xy.loc[a, "y"], boro
+                ),
+                "from_street": corridors.node_label(nodes, c.s, street, names),
+                "to_street": corridors.node_label(nodes, c.t, street, names),
+                "from_node": a,
+                "to_node": b,
+                "round": c.round + 1,
+                "picks": c.picks,
+                "new_m": c.new_m,
+                "length_m": e["length_m"].sum(),
+                # separate pieces of new lane, joined across blocks protected already
+                "gaps": int((np.diff(np.concatenate([[0], built.astype(int)])) == 1).sum()),
+                "saved_in_plan": c.saved_in_plan,
+                "saved_alone": c.saved_alone,
+                "trips_alone": c.trips_alone,
+                "blocks_alone": c.blocks_alone,
+            }
+        )
+        blocks.append(e[["segment_id", "dir", "u", "v"]].assign(corridor=i, new=built))
+    out = pd.DataFrame(rows)
+    out.to_parquet(config.BUILD_DIR / "corridors.parquet")
+    pd.concat(blocks, ignore_index=True).to_parquet(config.BUILD_DIR / "corridor_edges.parquet")
+
+    total = (weight * before).sum()
+    helped = weight[gain > corridors.EPS].sum()
+    summary = {
+        "budget_km": budget_km,
+        "new_km": round(out["new_m"].sum() / 1000, 2),
+        "rounds": int(picks["round"].max() + 1),
+        "saved": round((weight * gain).sum() / 1000),
+        "saved_share": round((weight * gain).sum() / total, 4),
+        "helped_day": round(helped / 365),
+        "helped_share": round(helped / weight.sum(), 4),
+        "year": config.DEMAND_YEAR,
+    }
+    (config.BUILD_DIR / "corridors.json").write_text(json.dumps(summary, indent=1))
+    print(
+        f"Plan: {out['new_m'].sum() / 1000:.1f} km of new protected lane in {len(out)} corridors, "
+        f"built over {picks['round'].max() + 1} rounds"
+    )
+    print(
+        f"  Saves {(weight * gain).sum() / 1000:,.0f} cost-km a year, "
+        f"{(weight * gain).sum() / total:.1%} of the stress on every trip today; "
+        f"{helped / 365:,.0f} trips a day ({helped / weight.sum():.1%}) ride at least one new block"
+    )
+    print(
+        "Corridors in build order. Alone: protected on its own against today's network.\n"
+        "Blocks: its blocks scored one at a time, summed. Cost-km a year; trips a day."
+    )
+    boro_code = {1: "MN", 2: "BX", 3: "BK", 4: "QN", 5: "SI"}
+    print(
+        f"  {'#':>3} {'street':24s} {'':2s}  {'from -> to':40s} {'new km':>6s} {'trips':>6s} {'alone':>8s} {'blocks':>8s}"
+    )
+    for r in out.itertuples():
+        span = f"{r.from_street} -> {r.to_street}" + (f" ({r.gaps} gaps)" if r.gaps > 1 else "")
+        print(
+            f"  {r.corridor:3d} {corridors.short_name(r.street)[:24]:24s} {boro_code.get(r.boro, '')} {r.heading}  "
+            f"{span[:40]:40s} {r.new_m / 1000:6.2f} {r.trips_alone / 365:6,.0f} "
+            f"{r.saved_alone / 1000:8,.0f} {r.blocks_alone / 1000:8,.0f}"
+        )
+    print(
+        f"Wrote {config.BUILD_DIR / 'corridors.parquet'}, corridor_edges.parquet and corridors.json"
+    )
+
+
 def main() -> None:
     """Parse arguments and run a command."""
     parser = argparse.ArgumentParser(prog="bike_network")
@@ -371,6 +495,14 @@ def main() -> None:
             help=f"comma-separated values (default {','.join(map(str, values))})",
         )
     sub.add_parser("candidates", help="rank single-block upgrades by the stress they would save")
+    cor = sub.add_parser("corridors", help="build out protected corridors greedily under a budget")
+    cor.add_argument(
+        "--budget-km",
+        type=float,
+        default=config.CORRIDOR_BUDGET_KM,
+        help=f"km of new protected lane (default {config.CORRIDOR_BUDGET_KM})",
+    )
+    cor.add_argument("--seed", type=int, default=0, help="seed for the station-pair sample")
     args = parser.parse_args()
     if args.command == "build":
         build()
@@ -384,3 +516,5 @@ def main() -> None:
         run_calibration({k: getattr(args, k) for k in GRID if getattr(args, k)})
     elif args.command == "candidates":
         run_candidates()
+    elif args.command == "corridors":
+        run_corridors(args.budget_km, args.seed)

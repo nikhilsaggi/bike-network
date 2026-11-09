@@ -67,6 +67,20 @@ Bike trips would save if it had one, including trips that avoid the block
 today. It scores two independent samples of 40,000 station pairs and reports
 how far their rankings agree, then writes `candidates.parquet`.
 
+One block at a time misses corridors: a block of mixed traffic between two
+others is worth little on its own, because the detour to a parallel lane
+still wins. `python -m bike_network corridors` scores whole stretches
+instead: consecutive blocks of one street in one direction, which a trip can
+join at any intersection and leave at any later one. It then spends a budget
+of new protected lane greedily (`--budget-km`, default 80, about NYC's yearly
+Streets Plan target). Each round builds the stretches that save the most
+stress per new metre, re-routes, and scores every street again, about 90
+seconds a round. It writes `corridors.parquet` (one row per corridor, in
+build order), `corridor_edges.parquet` (its blocks) and `corridors.json` (the
+plan's totals), and `viz` then adds a New corridors view to the map. The
+method and what it found:
+[docs/methodology.md](docs/methodology.md#7-where-new-lanes-would-help).
+
 ## Cost model
 
 Each directed edge costs `length_m * factor`. A bike either rides the edge or

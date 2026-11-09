@@ -294,7 +294,160 @@ way.
   intersections, and a per-block cost cannot see a left turn across an
   arterial.
 
-## 7. Reproducing it
+## 7. Where new lanes would help
+
+### One block at a time
+
+`candidates` asks, for each directed block without a protected facility,
+what giving it one would save. A trip from `o` to `d` saves
+`max(0, C_od − (D_o[u] + c' + R_d[v]))`, where `C_od` is its cost today,
+`D_o` the cheapest costs from `o`, `R_d` the cheapest costs to `d`, and `c'`
+the block's protected cost (its length). That is exact for one block, and it
+counts trips that avoid the block today.
+
+It misses corridors. Midtown 5th Ave has no lane from 59th St down to 24th
+St (factor 5.0, about 22,000 vehicles a day), and a protected lane from 23rd
+St south. Today's cheapest route from 5th Ave at 49th St to Washington
+Square goes west to 6th Ave, up to 51st St, down 7th Ave and Broadway, and
+back to 5th Ave at 25th St. Protect one block of 5th Ave and the rider still
+faces the blocks either side of it, so the detour still wins.
+
+### Stretches
+
+A **stretch** is consecutive blocks of one street in one direction. Each
+street is chained into runs, taking the straightest continuation at every
+node of the same name, and ending at a turn sharper than 60° or a U-turn.
+Both directions are runs, so the wrong way down a one-way street is a
+contraflow corridor. Protect a stretch and a trip can join it at any node
+`i` and leave at any later node `j`:
+
+```
+via = D_o[n_i] + (P_j − P_i) + R_d[n_j]
+saving = max(0, C_od − min over i < j of via)
+```
+
+`P` is the running length along the stretch. A single sweep finds the
+minimum, keeping the best `D_o[n_i] − P_i` seen so far. Every block costs at
+least its length and a protected one exactly that, so leaving a straight
+stretch and rejoining it never pays, and the score is exact. On a curving
+street it is a lower bound. The test suite checks it against re-routing
+every trip, for every stretch of a synthetic grid.
+
+5th Ave southbound, 48th St to 23rd St (2.0 km), on the 2025 trips:
+
+| | Stress saved, cost-km a year | Trips a day using it |
+|---|---|---|
+| As one stretch | 741,000 | 5,000 |
+| Built, and every sampled trip re-routed | 741,500 | 5,000 |
+| Its 31 blocks one at a time, summed | 200,000 | |
+| Its best single block | 37,000 | |
+
+Most of the value comes from linking up with the existing lane at 23rd St.
+From 48th St down to 42nd St saves 37,000 (355 trips a day), to 34th St
+282,000, to 26th St 566,000, and to 23rd St 741,000.
+
+### How far a corridor runs
+
+A longer stretch never saves less, so its extent needs a price: extend
+while each new metre saves at least that much. Blocks already protected
+cost nothing, so a stretch may join gaps across them. On 5th Ave
+southbound the south end is 23rd St at almost any price, because that is
+where the lane starts. The north end moves with the price:
+
+| Price (cost-m a year saved per new metre) | Best stretch of 5th Ave | New km | Trips a day |
+|---|---|---|---|
+| 383,000 | 25th St to 23rd St, the Madison Square block | 0.2 | 1,900 |
+| 316,000 | 55th St to 23rd St | 2.6 | 6,300 |
+| 261,000 | 77th St to 23rd St | 4.3 | 8,000 |
+| 215,000 | 91st St to 23rd St, and the painted block at Washington Square | 5.5 | 9,500 |
+| 178,000 | 110th St to 23rd St, and that block | 7.1 | 10,300 |
+
+### The build-out
+
+The budget sets the price. Each round scores every stretch of every run
+(about 4 million) against the network as built so far, at a grid of
+prices. It takes the highest price at which each run's best stretch,
+summed over the runs, would fill what is left of the budget. Summing counts
+two parallel avenues twice, so the price comes out high, and the next
+round sets it again. At that price each run offers one stretch, and the
+round builds them in order of saving per new metre. It skips a stretch if
+more than 10% of the trips it helps are also helped by one already taken
+this round: those two compete for the same riders, so the second waits for
+the next round's rescore, which sees the first built. The round stops at
+10 km of new lane. Picks on one street that touch, or that join across
+blocks already protected, are reported as one corridor.
+
+| Knob | Value | Why |
+|---|---|---|
+| Budget | 80 km | About 50 miles: NYC's Streets Plan target for protected bike lanes a year |
+| Shortest project | 100 m | Every project costs at least about a block. Without a floor, a 9 m sliver at an intersection outranks every corridor on saving per metre |
+| New lane per round | 10 km | Picks interact; rescoring every 10 km lets later picks see the earlier ones built |
+| Shared riders | 10% | Two stretches that help disjoint sets of trips are each worth what they scored |
+| Prices | 10,000 to 10 million cost-m a year per new metre, 12 steps to a factor of ten | Spans the best gap (about 2 million) to far below the price an 80 km budget sets |
+| Sharpest turn in a run | 60° | Broadway's own bends, at Madison Square and Columbus Circle, reach 59° between LION nodes |
+
+A trip's distances come from 40,000 station pairs sampled in proportion to
+their trips, as in `candidates`. Distances are float32, so a saving under
+half a cost-metre is rounding and is not counted.
+
+### What it found
+
+An 80 km build-out on the 2025 trips (`python -m bike_network corridors`)
+took 11 rounds, at prices that fell from 178,000 to 100,000 cost-m a year
+per new metre. It saves 10.4% of the stress on every Citi Bike trip, and
+79,000 trips a day (65%) ride at least one new block.
+
+- **Most of the budget fills gaps.** 265 of the 279 corridors are under a
+  kilometre (median 150 m), and they hold 55 km and three quarters of the
+  saving. Most are missing blocks in lanes that are already busy, such as
+  nine short gaps in 2nd Ave's lane between 123rd St and 2nd St.
+- **Fourteen corridors run a kilometre or more** and hold the other 26 km.
+  Built alone, they save 3.9 times what their blocks save one at a time,
+  which is why the block list missed them. The largest are Madison Ave
+  northbound from 39th to 103rd St (5.2 km), Park Ave southbound from 98th
+  to 47th St (4.1 km), Lafayette Ave westbound in Brooklyn (2.1 km), and
+  5th Ave southbound from 44th to 23rd St (1.7 km, 4,800 trips a day).
+- **The rounds reshape corridors.** In round 1, 5th Ave's stretch ran from
+  110th St to 23rd St. By round 8, Park Ave southbound had taken the Upper
+  East Side's riders, and the 5th Ave stretch worth building was 44th to
+  23rd St.
+- **Manhattan gets 63 km**, Brooklyn 16, Queens 1.4 and the Bronx 0.1. That
+  is where Citi Bike's trips are, not a judgment on where lanes are needed.
+- **35% of the new lane runs against one-way traffic** (contraflow). With
+  length the only cost, nothing weighs what a contraflow lane on an avenue
+  would take space from.
+
+Ranking by saving per new metre, with no price to size the stretches,
+spent the same 80 km on 361 fragments that saved 9.4%. Its stretches
+extended only as far as the densest piece of each street, so long
+corridors arrived block by block, and the budget ran out before most of
+them were complete.
+
+A second build-out on an independent sample of 40,000 station pairs
+(`--seed 1`) shares 64% of the new blocks, 74% weighted by saving. Both
+build Park Ave southbound from 98th to 47th St, Park Ave South, East 72nd
+St, Lafayette St, Madison Ave northbound through the 50s and 60s, and 5th
+Ave southbound to 23rd St (from 44th St in one, 55th St in the other).
+Where two parallel streets serve the same riders, the sample decides which
+one gets the lane: Lafayette Ave in Brooklyn in one, DeKalb Ave a block
+south in the other. The 6th Ave contraflow, Grand St and 8th Ave are built
+in one sample only. Read a corridor as "this street or the next one over".
+
+### Limits
+
+- **One street per corridor.** A route that turns (5th Ave, then 23rd St)
+  is two corridors, built in two rounds if the first pays on its own, and
+  missed if neither does.
+- **Greedy, not optimal.** Choosing the best set of lanes for a budget is a
+  hard combinatorial problem; the rounds account for the biggest
+  interactions, not all of them.
+- **The only cost is length.** Street width, parking, bus lanes and
+  loading are not in it, so a corridor here is where riders would gain, not
+  a design.
+- The demand is Citi Bike's, and stress is route choice, not crash risk
+  (section 6).
+
+## 8. Reproducing it
 
 ```
 python -m bike_network build       # network, traffic model, costs
@@ -302,6 +455,8 @@ python -m bike_network traffic     # the volume model's hold-out scores
 python -m bike_network assign      # route 2025's Citi Bike trips
 python -m bike_network calibrate   # the 108-setting grid (about an hour)
 python -m bike_network calibrate --per-doubling 0.75,1.0 --painted 0.3,0.75 --walk-factor 6,8,12
+python -m bike_network candidates  # single blocks, two samples
+python -m bike_network corridors   # the 80 km build-out (--budget-km, --seed)
 ```
 
 `calibrate` merges each run into `data/build/calibration.parquet`, one row
