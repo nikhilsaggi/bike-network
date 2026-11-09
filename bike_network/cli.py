@@ -20,6 +20,7 @@ from . import (
     demand,
     lanes,
     lion,
+    pages,
     sources,
     traffic,
     viz,
@@ -445,6 +446,29 @@ def run_corridors(budget_km: float, seed: int = 0) -> None:
     )
 
 
+def run_publish(*, push: bool, remote: str) -> None:
+    """Commit the exported viewer as the gh-pages branch and push it."""
+    site = config.BUILD_DIR / "viz"
+    problems = pages.stale(site, config.BUILD_DIR)
+    if problems:
+        raise SystemExit(
+            "Not publishing: " + "; ".join(problems) + ". Run `python -m bike_network viz` first."
+        )
+    head = pages.git(config.ROOT, "rev-parse", "--short", "HEAD")
+    dirty = pages.git(config.ROOT, "status", "--porcelain", "--untracked-files=no")
+    message = f"Publish the map built from {head}" + (" with uncommitted changes" if dirty else "")
+    commit = pages.commit_site(site, config.ROOT, message)
+    print(f"{pages.BRANCH} is now {commit[:7]}: {message}")
+    if not push:
+        return
+    pages.git(config.ROOT, "push", "--force", remote, f"{commit}:refs/heads/{pages.BRANCH}")
+    url = pages.pages_url(pages.git(config.ROOT, "remote", "get-url", remote))
+    print(
+        f"Pushed to {remote}"
+        + (f"; Pages serves it at {url} within a minute or two" if url else "")
+    )
+
+
 def main() -> None:
     """Parse arguments and run a command."""
     parser = argparse.ArgumentParser(prog="bike_network")
@@ -470,6 +494,9 @@ def main() -> None:
         help=f"km of new protected lane (default {config.CORRIDOR_BUDGET_KM})",
     )
     cor.add_argument("--seed", type=int, default=0, help="seed for the station-pair sample")
+    pub = sub.add_parser("publish", help="push the exported viewer to the gh-pages branch")
+    pub.add_argument("--no-push", action="store_true", help="commit the branch but do not push it")
+    pub.add_argument("--remote", default="origin", help="remote to push to (default origin)")
     args = parser.parse_args()
     if args.command == "build":
         build()
@@ -485,3 +512,5 @@ def main() -> None:
         run_candidates()
     elif args.command == "corridors":
         run_corridors(args.budget_km, args.seed)
+    elif args.command == "publish":
+        run_publish(push=not args.no_push, remote=args.remote)

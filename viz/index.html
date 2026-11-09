@@ -67,6 +67,8 @@ body {
 h1 { font-size: 22px; font-weight: 800; letter-spacing: 0.01em; margin: 0; text-wrap: balance; }
 .lede { margin: 6px 0 0; color: var(--ink-2); line-height: 1.5; max-width: 60ch; }
 .src { margin: 6px 0 0; color: var(--ink-3); font-size: 12px; }
+.src a { color: inherit; text-underline-offset: 2px; }
+.src a:hover { color: var(--ink); }
 h2 {
   font-size: 11px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase;
   color: var(--ink-3); margin: 0 0 10px;
@@ -193,6 +195,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     <p class="lede">Every street is drawn once per direction, on the rider's right-hand side.
       Colour is how much a metre of riding costs, against a quiet two-way street.</p>
     <p class="src" id="src">LION street map · NYC DOT bike routes</p>
+    <p class="src"><a href="https://github.com/nikhilsaggi/bike-network/blob/main/docs/methodology.md" target="_blank" rel="noopener">How it is built</a>
+      · <a href="https://github.com/nikhilsaggi/bike-network" target="_blank" rel="noopener">Source</a></p>
   </header>
 
   <div class="seg" role="group" aria-label="What the map shows">

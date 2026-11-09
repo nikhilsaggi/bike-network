@@ -470,6 +470,8 @@ python -m bike_network calibrate   # the 108-setting grid (about an hour)
 python -m bike_network calibrate --per-doubling 0.75,1.0 --painted 0.3,0.75 --walk-factor 6,8,12
 python -m bike_network candidates  # single blocks, two samples
 python -m bike_network corridors   # the 80 km build-out (--budget-km, --seed)
+python -m bike_network viz         # export the map
+python -m bike_network publish     # push it to GitHub Pages
 ```
 
 `calibrate` merges each run into `data/build/calibration.parquet`, one row

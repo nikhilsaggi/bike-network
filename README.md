@@ -35,6 +35,15 @@ trips mode shows routed trips a day per direction under the safest and the
 shortest routing, their difference, where the trip-km go by facility, and
 the busiest bike facilities.
 
+The published map is at **https://nikhilsaggi.github.io/bike-network/**.
+`python -m bike_network publish` puts the exported folder there: it commits
+`data/build/viz/` as the whole of the `gh-pages` branch (one commit, no
+history, since it is build output) and force-pushes it, and GitHub Pages
+serves that branch. It refuses an export older than the checkout's viewer or
+than any build file it was made from, so run `viz` first. `--no-push` builds
+the branch without pushing it. A fork needs Pages turned on once, serving
+`gh-pages` from `/`.
+
 ## Routing Citi Bike trips
 
 `python -m bike_network assign` downloads Citi Bike's

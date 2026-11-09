@@ -307,17 +307,26 @@ def export(
     }
 
 
+def page() -> str:
+    """Return the viewer page as a whole document.
+
+    ``viz/index.html`` is written as a page body (the artifact host adds the
+    document around it); a standalone copy gets that skeleton here.
+    """
+    body = (config.ROOT / "viz" / "index.html").read_text()
+    return (
+        '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
+        '<meta name="description" content="Every NYC street costed by cycling stress, a year of '
+        'Citi Bike trips routed over it, and where new protected lanes would help most.">'
+        f"</head><body>\n{body}\n</body></html>\n"
+    )
+
+
 def write(payload: dict[str, Any]) -> None:
     """Write the payload next to a copy of the viewer page in ``data/build/viz``."""
     out = config.BUILD_DIR / "viz"
     out.mkdir(parents=True, exist_ok=True)
     (out / "data.json").write_text(json.dumps(payload, separators=(",", ":")))
     (out / "cost.js").write_text((config.ROOT / "viz" / "cost.js").read_text())
-    # viz/index.html is written as a page body (the artifact host adds the
-    # document around it); a local copy gets that skeleton here.
-    page = (config.ROOT / "viz" / "index.html").read_text()
-    (out / "index.html").write_text(
-        '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
-        f"</head><body>\n{page}\n</body></html>\n"
-    )
+    (out / "index.html").write_text(page())
