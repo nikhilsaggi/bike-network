@@ -50,6 +50,23 @@ ways), `routes.parquet` (each station pair's route) and `stations.parquet`.
 Trips that start and end at the same station are loops with no route and
 are dropped; so are trips with no end station.
 
+## Calibration and new-lane candidates
+
+`python -m bike_network calibrate` re-routes the year's trips under a grid of
+the three main knobs (traffic weight, painted-lane share, walking factor) and
+scores each against DOT's automated bike counters (about an hour; pass
+`--per-doubling`, `--painted` or `--walk-factor` lists to run a smaller grid,
+whose results merge into `calibration.parquet`). How the score works, what
+it decided and what it could not are in
+**[docs/methodology.md](docs/methodology.md)**.
+
+`python -m bike_network candidates` scores every block that could take a
+protected facility (a lane where there is none, a contraflow lane against
+one-way traffic, a riding path on a walkway) by the stress a year of Citi
+Bike trips would save if it had one, including trips that avoid the block
+today. It scores two independent samples of 40,000 station pairs and reports
+how far their rankings agree, then writes `candidates.parquet`.
+
 ## Cost model
 
 Each directed edge costs `length_m * factor`. A bike either rides the edge or
@@ -99,6 +116,9 @@ estimate ranks streets better than it measures any one of them.
 
 ## Known gaps
 
+- DOT's bike routes and LION have drifted apart in segment ids. Separated
+  paths DOT has never recorded take their directions from LION (586 blocks);
+  see [docs/methodology.md](docs/methodology.md).
 - About 30 DOT lane records are attached to the generic centreline of a
   divided street (LION layer `G`) rather than its carriageways, so they do not
   reach the network. Another ~270 current records name a segment LION does
