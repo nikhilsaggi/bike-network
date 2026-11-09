@@ -74,13 +74,21 @@ def load(path: Path) -> pd.DataFrame:
     return facilities(pd.DataFrame(json.loads(path.read_text())))
 
 
+def recorded_segments(path: Path) -> set[str]:
+    """Every segment DOT has a bike route record for, current or retired."""
+    records = pd.DataFrame(json.loads(path.read_text()))
+    return set(records["segmentid"].astype(str).str.strip().str.zfill(7))
+
+
 # LION's BikeLane classes that are a separated path whatever else they combine
 # with: 1 Class I, 4 link, and the Class I combinations 5, 8, 9 and 10.
 LION_SEPARATED = frozenset({"1", "4", "5", "8", "9", "10"})
 
 
-def with_lion_paths(fac: pd.DataFrame, seg: pd.DataFrame) -> pd.DataFrame:
-    """Add separated paths LION marks as bike network but DOT has no current record for.
+def with_lion_paths(
+    fac: pd.DataFrame, seg: pd.DataFrame, recorded: set[str] | None = None
+) -> pd.DataFrame:
+    """Add separated paths LION marks as bike network but DOT has never recorded.
 
     LION and DOT's bike routes have drifted apart in segment ids (DOT's current
     records name some ids LION 26C does not have, and the reverse), which left
@@ -89,8 +97,14 @@ def with_lion_paths(fac: pd.DataFrame, seg: pd.DataFrame) -> pd.DataFrame:
     Only separated paths fall back to LION: they are physical and rarely
     removed, while painted and signed on-street lanes do get removed and DOT is
     the authority on those.
+
+    ``recorded`` holds every segment DOT has a record for, current or retired.
+    A retired record is DOT saying a block is no longer a facility, and LION
+    can lag it: the Pulaski Bridge's pedestrian path was a shared path until
+    DOT opened the bike path beside it in 2016, and LION still marks both.
+    Reviving it split the bridge's riders across two paths.
     """
-    known = set(fac["segment_id"])
+    known = set(fac["segment_id"]) | (recorded or set())
     s = seg[
         seg["bike_lane"].isin(LION_SEPARATED)
         & seg["bike_dir"].isin(["FT", "TF", "TW"])

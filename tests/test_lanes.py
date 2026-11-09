@@ -55,11 +55,15 @@ def test_lion_fills_in_separated_paths_dot_lacks():
                 lion_row(2, 2, 3, "W", BikeLane=" 1", BIKE_TRAFDIR="FT"),  # one-way path
                 lion_row(3, 3, 4, "T", BikeLane=" 2", BIKE_TRAFDIR="TW"),  # paint: DOT decides
                 lion_row(4, 4, 5, "P", BikeLane=" 1", BIKE_TRAFDIR="TW"),  # DOT has it: kept
+                lion_row(5, 5, 6, "P", BikeLane=" 1", BIKE_TRAFDIR="TW"),  # DOT retired it
             ]
         )
     )
-    fac = lanes.facilities(pd.DataFrame([dot_row(4, "Shared", "Shared")]))
-    f = lanes.with_lion_paths(fac, seg).set_index("segment_id")
+    records = [dot_row(4, "Shared", "Shared"), dot_row(5, "Sidewalk", "Sidewalk", status="Retired")]
+    fac = lanes.facilities(pd.DataFrame(records))
+    recorded = {"0000004", "0000005"}
+    f = lanes.with_lion_paths(fac, seg, recorded).set_index("segment_id")
+    assert "0000005" not in f.index  # LION lags DOT's retirement
     assert (f.loc["0000001", "fwd"], f.loc["0000001", "rev"]) == ("separated", "separated")
     assert (f.loc["0000002", "fwd"], f.loc["0000002", "rev"]) == ("separated", "none")
     assert "0000003" not in f.index

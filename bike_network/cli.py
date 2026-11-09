@@ -59,8 +59,8 @@ def build() -> None:
     print(f"  {len(seg):,} segments")
     fac = lanes.load(routes)
     n_dot = len(fac)
-    fac = lanes.with_lion_paths(fac, seg)
-    print(f"  {len(fac) - n_dot} separated paths taken from LION where DOT has no current record")
+    fac = lanes.with_lion_paths(fac, seg, lanes.recorded_segments(routes))
+    print(f"  {len(fac) - n_dot} separated paths taken from LION where DOT has never recorded one")
     print("Traffic")
     est, counted = traffic.volumes(seg)
     print(
