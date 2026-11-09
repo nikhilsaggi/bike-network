@@ -299,6 +299,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   const HIST_MAX = 6;          // histogram's last bin is "6 and over"
   const HIST_STEP = 0.1;
   const OFFSET = 0.6;          // each direction drawn this many line-widths to its right
+  const INIT_ZOOM = 11.6;
+  const BASE_ZOOM = 12;        // lines widen past this zoom, so blocks are easier to see and hit
+  const COARSE = window.matchMedia("(pointer: coarse)").matches;
 
   const KNOBS = [
     { group: "Traffic penalty, on any street with cars" },
@@ -320,7 +323,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
   let data, defaults, k, edges, segPaths, counted;
   let factor, kind, colors, overlay = [];
-  let version = 0, deckgl, selected = null;
+  let version = 0, deckgl, selected = null, widthScale = 1;
   let mode = "cost", flowView = "safest", widths;
   let planIndex = new Map(), selectedCorridor = null, corSort = "saved", corAll = false;
   let corFilter = "all", planDashed = [];
@@ -520,6 +523,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   }
 
   // ---------- map ----------
+  // Twice as wide every four zoom levels past BASE_ZOOM, a third wider on touch screens.
+  function scaleFor(zoom) {
+    return Math.min(Math.max(Math.pow(2, (zoom - BASE_ZOOM) / 4), 1), 3) * (COARSE ? 1.35 : 1);
+  }
+  function clearCard() { document.getElementById("card").hidden = true; selected = null; render(); }
   function layers() {
     const ext = new deck.PathStyleExtension({ offset: true });
     const dashExt = new deck.PathStyleExtension({ offset: true, dash: true });
@@ -528,14 +536,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
         id: "edges", data: edges, getPath: (e) => e.path, positionFormat: "XY",
         getColor: (e, { index }) => colors.subarray(4 * index, 4 * index + 4),
         getWidth: (e, { index }) => (mode !== "cost" ? widths[index] : kind[index] === 2 ? 0.8 : 1.4),
-        widthUnits: "pixels", widthMinPixels: 0.6, getOffset: OFFSET, extensions: [ext],
+        widthUnits: "pixels", widthScale, widthMinPixels: 0.6, getOffset: OFFSET, extensions: [ext],
         capRounded: false, jointRounded: false, pickable: true, autoHighlight: true,
         highlightColor: [255, 196, 0, 255],
         updateTriggers: { getColor: version, getWidth: version },
       }),
       new deck.PathLayer({
         id: "walkwin", data: mode === "cost" ? overlay : [], getPath: (e) => e.path, positionFormat: "XY",
-        getColor: palette.walk.concat(255), getWidth: 3, widthUnits: "pixels",
+        getColor: palette.walk.concat(255), getWidth: 3, widthUnits: "pixels", widthScale,
         getOffset: OFFSET * 1.4 / 3, extensions: [ext], pickable: false,
         updateTriggers: { getColor: version },
       }),
@@ -543,10 +551,16 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
       // lane already running the other way beside it.
       new deck.PathLayer({
         id: "contraflow", data: mode === "plan" ? planDashed : [], getPath: (o) => o.e.path, positionFormat: "XY",
-        getColor: (o) => o.color, getWidth: (o) => o.width, widthUnits: "pixels", getOffset: OFFSET,
+        getColor: (o) => o.color, getWidth: (o) => o.width, widthUnits: "pixels", widthScale, getOffset: OFFSET,
         getDashArray: [2.5, 1.5], dashJustified: true, extensions: [dashExt],
         capRounded: false, jointRounded: false, pickable: true, autoHighlight: true,
         highlightColor: [255, 196, 0, 255], updateTriggers: { getColor: version, getWidth: version },
+      }),
+      // The block whose card is open stays lit, since a tap leaves no hover highlight.
+      new deck.PathLayer({
+        id: "selected", data: selected ? [selected] : [], getPath: (e) => e.path, positionFormat: "XY",
+        getColor: [255, 196, 0, 255], getWidth: 3, widthUnits: "pixels", widthScale, widthMinPixels: 3,
+        getOffset: OFFSET * 1.4 / 3, extensions: [ext], capRounded: true, jointRounded: true, pickable: false,
       }),
     ];
   }
@@ -565,7 +579,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
   function showCard(e) {
     if (mode === "plan" && planIndex.has(2 * e.s + e.d)) { showCorridorCard(planIndex.get(2 * e.s + e.d)[0], e); return; }
-    selected = e;
+    if (selected !== e) { selected = e; render(); }
     const s = e.s, p = data.p[s];
     const r = BikeCost.edge(p, data.speed[s], data.vf[s], data.vr[s], e.d, k);
     const traf = p & 3;
@@ -599,7 +613,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
       </dl>
       <div class="verdict">${verdict}</div>`;
     card.querySelector("h4").textContent = data.names[data.name[s]] || "Unnamed";
-    card.querySelector(".x").onclick = () => { card.hidden = true; selected = null; };
+    card.querySelector(".x").onclick = clearCard;
     card.hidden = false;
   }
 
@@ -722,7 +736,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   }
   const kmText = (m) => (m / 1000).toFixed(m < 10000 ? 2 : 1) + " km";
   function showCorridorCard(ci, e) {
-    selected = e;
+    if (selected !== e) { selected = e; render(); }
     const c = data.plan.corridors[ci];
     const card = document.getElementById("card");
     const block = e ? planIndex.get(2 * e.s + e.d) : null;
@@ -746,7 +760,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
       <div class="verdict">${here ? here + " " : ""}Figures are for the corridor built on its own against today's network.</div>`;
     card.querySelector("h4").textContent = titleCase(c.street);
     card.querySelector(".dir").textContent = corridorSpan(c);
-    card.querySelector(".x").onclick = () => { card.hidden = true; selected = null; };
+    card.querySelector(".x").onclick = clearCard;
     card.hidden = false;
   }
 
@@ -947,7 +961,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   };
   document.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape") {
-      document.getElementById("card").hidden = true; selected = null;
+      clearCard();
       if (selectedCorridor !== null) { selectedCorridor = null; if (mode === "plan") { paintPlan(); version++; render(); } }
     }
   });
@@ -969,11 +983,17 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     buildKnobs();
     if (d.flow) buildTrips(d.flow); else document.getElementById("modeTrips").hidden = true;
     if (d.plan) buildPlan(d.plan); else document.getElementById("modePlan").hidden = true;
+    widthScale = scaleFor(INIT_ZOOM);
     deckgl = new deck.Deck({
       parent: document.getElementById("map"),
       views: new deck.MapView({ repeat: false }),
-      initialViewState: { longitude: -73.965, latitude: 40.725, zoom: 11.6, minZoom: 9, maxZoom: 19 },
+      initialViewState: { longitude: -73.965, latitude: 40.725, zoom: INIT_ZOOM, minZoom: 9, maxZoom: 19 },
       controller: true,
+      pickingRadius: COARSE ? 16 : 6,  // a street within this many pixels of the pointer counts as hit
+      onViewStateChange: ({ viewState }) => {
+        const s = scaleFor(viewState.zoom);
+        if (Math.abs(s - widthScale) > 0.05 * widthScale) { widthScale = s; render(); }
+      },
       getCursor: ({ isHovering }) => (isHovering ? "pointer" : "grab"),
       onHover: (info) => { if (info.object && window.matchMedia("(hover: hover)").matches) showCard(info.object.e || info.object); },
       onClick: (info) => { if (info.object) showCard(info.object.e || info.object); },
