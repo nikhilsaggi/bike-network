@@ -171,6 +171,12 @@ def test_plan_blocks_point_at_their_own_segment_and_direction():
                 "from_street": ["A"],
                 "to_street": ["B"],
                 "new_m": [1000.0],
+                "kind": ["contraflow"],
+                "contraflow_m": [1000.0],
+                "painted_m": [0.0],
+                "shared_m": [0.0],
+                "none_m": [0.0],
+                "opposite": ["separated"],
                 "gaps": [1],
                 "round": [1],
                 "trips_alone": [365.0],
@@ -185,6 +191,7 @@ def test_plan_blocks_point_at_their_own_segment_and_direction():
                 "dir": ["rev", "fwd"],
                 "corridor": [1, 1],
                 "new": [True, False],
+                "kind": ["contraflow", ""],
             }
         ),
         "summary": {"budget_km": 80},
@@ -194,5 +201,8 @@ def test_plan_blocks_point_at_their_own_segment_and_direction():
     assert p["budget_km"] == 80
     assert p["corridors"][0]["trips_day"] == 1
     street_of = dict(zip(seg["segment_id"], seg["street"], strict=True))
-    got = {(payload["names"][payload["name"][s]], d, new) for s, d, _, new in p["blocks"]}
-    assert got == {(street_of[ids[2]], 1, 1), (street_of[ids[0]], 0, 0)}
+    got = {(payload["names"][payload["name"][s]], d, new, k) for s, d, _, new, k in p["blocks"]}
+    assert got == {(street_of[ids[2]], 1, 1, 0), (street_of[ids[0]], 0, 0, -1)}
+    assert p["kinds"][0] == "contraflow"
+    assert p["corridors"][0]["kinds"]["contraflow"] == 1000
+    assert p["corridors"][0]["opposite"] == "separated"

@@ -305,7 +305,8 @@ def run_candidates() -> None:
     """Score every possible single-block upgrade by the stress it would save Citi Bike trips."""
     edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet")
     seg = pd.read_parquet(
-        config.BUILD_DIR / "segments.parquet", columns=["segment_id", "traf_dir", "boro"]
+        config.BUILD_DIR / "segments.parquet",
+        columns=["segment_id", "traf_dir", "rb_layer", "boro"],
     )
     graph = Graph.from_edges(edges)
     od, _ = _network_od(graph)
@@ -368,7 +369,7 @@ def run_corridors(budget_km: float, seed: int = 0) -> None:
     edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet")
     seg = pd.read_parquet(
         config.BUILD_DIR / "segments.parquet",
-        columns=["segment_id", "street", "u", "v", "traf_dir", "boro"],
+        columns=["segment_id", "street", "u", "v", "traf_dir", "rb_layer", "boro"],
     )
     graph = Graph.from_edges(edges)
     od, _ = _network_od(graph)
@@ -396,45 +397,9 @@ def run_corridors(budget_km: float, seed: int = 0) -> None:
     after = corridors.Distances.compute(Graph.from_edges(final), pairs, reverse=False).cost
     gain = before - after
 
-    names = corridors.cross_streets(seg)
-    first = runs.table.groupby("run").first()
-    rows, blocks = [], []
-    for i, c in enumerate(plan.itertuples(), start=1):
-        street, boro = first.loc[c.run, "street"], int(first.loc[c.run, "boro"])
-        part = runs.table[runs.table["run"] == c.run]
-        nodes = [*part["u"], part["v"].iloc[-1]]
-        a, b = nodes[c.s], nodes[c.t]
-        span = corridors.stretch_edges(runs, c.run, c.s, c.t)
-        e = edges.loc[span]
-        built = e["cost"].to_numpy() > np.maximum(e["length_m"].to_numpy(), 0.01) * (1 + 1e-9)
-        rows.append(
-            {
-                "corridor": i,
-                "street": street,
-                "boro": boro,
-                "heading": corridors.heading(
-                    xy.loc[b, "x"] - xy.loc[a, "x"], xy.loc[b, "y"] - xy.loc[a, "y"], boro
-                ),
-                "from_street": corridors.node_label(nodes, c.s, street, names),
-                "to_street": corridors.node_label(nodes, c.t, street, names),
-                "from_node": a,
-                "to_node": b,
-                "round": c.round + 1,
-                "picks": c.picks,
-                "new_m": c.new_m,
-                "length_m": e["length_m"].sum(),
-                # separate pieces of new lane, joined across blocks protected already
-                "gaps": int((np.diff(np.concatenate([[0], built.astype(int)])) == 1).sum()),
-                "saved_in_plan": c.saved_in_plan,
-                "saved_alone": c.saved_alone,
-                "trips_alone": c.trips_alone,
-                "blocks_alone": c.blocks_alone,
-            }
-        )
-        blocks.append(e[["segment_id", "dir", "u", "v"]].assign(corridor=i, new=built))
-    out = pd.DataFrame(rows)
+    out, blocks = corridors.describe(plan, runs, edges, seg, xy)
     out.to_parquet(config.BUILD_DIR / "corridors.parquet")
-    pd.concat(blocks, ignore_index=True).to_parquet(config.BUILD_DIR / "corridor_edges.parquet")
+    blocks.to_parquet(config.BUILD_DIR / "corridor_edges.parquet")
 
     total = (weight * before).sum()
     helped = weight[gain > corridors.EPS].sum()
@@ -467,7 +432,9 @@ def run_corridors(budget_km: float, seed: int = 0) -> None:
         f"  {'#':>3} {'street':24s} {'':2s}  {'from -> to':40s} {'new km':>6s} {'trips':>6s} {'alone':>8s} {'blocks':>8s}"
     )
     for r in out.itertuples():
-        span = f"{r.from_street} -> {r.to_street}" + (f" ({r.gaps} gaps)" if r.gaps > 1 else "")
+        span = f"{r.kind[:6]} {r.from_street} -> {r.to_street}" + (
+            f" ({r.gaps} gaps)" if r.gaps > 1 else ""
+        )
         print(
             f"  {r.corridor:3d} {corridors.short_name(r.street)[:24]:24s} {boro_code.get(r.boro, '')} {r.heading}  "
             f"{span[:40]:40s} {r.new_m / 1000:6.2f} {r.trips_alone / 365:6,.0f} "

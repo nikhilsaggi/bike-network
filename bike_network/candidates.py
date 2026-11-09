@@ -19,7 +19,8 @@ Three kinds of candidate, all on segments that exist:
 
 - ``lane``: a direction riders may use today without a protected facility;
 - ``contraflow``: the direction against car traffic on a one-way street,
-  walked today;
+  walked today (not on one roadbed of a divided street, whose other roadbed
+  carries that direction);
 - ``walkway``: a path walked today because riding is not allowed on it.
 
 Highways and other vehicle-only roads have no edges and are never candidates.
@@ -34,6 +35,7 @@ from numba import njit, prange
 from scipy.sparse import csgraph
 
 from . import config
+from .network import other_roadbed
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -53,7 +55,7 @@ def candidate_edges(edges: pd.DataFrame, seg: pd.DataFrame) -> pd.DataFrame:
     kind = np.select(
         [
             ~walked & (e["facility"] != "separated"),
-            walked & on_street,
+            walked & on_street & ~other_roadbed(edges, seg),
             walked & ~on_street & (e["factor"] < config.STEP_FACTOR),
         ],
         ["lane", "contraflow", "walkway"],

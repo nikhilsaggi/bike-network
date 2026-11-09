@@ -44,7 +44,7 @@ import pandas as pd
 from numba import njit, prange
 
 from . import candidates, config
-from .network import CAR_DIRS, MIN_COST, Graph
+from .network import CAR_DIRS, MIN_COST, Graph, against_traffic, other_roadbed
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -74,13 +74,16 @@ def street_runs(edges: pd.DataFrame, seg: pd.DataFrame, xy: pd.DataFrame) -> pd.
     pairing takes the straightest continuation at that node. Turns sharper
     than ``config.CORRIDOR_MAX_TURN_DEG`` and U-turns end a run. Streets
     open to cars are chained in both directions, so the wrong way down a
-    one-way street is a run too (a contraflow corridor). Blocks of the same
+    one-way street is a run too (a contraflow corridor), except on one
+    roadbed of a divided street, whose other roadbed carries that direction
+    (:func:`network.other_roadbed`). Blocks of the same
     name that are protected already, such as a rideable plaza, join the run
     but are never built. ``xy`` maps LION node id to ``x, y`` feet.
     Columns: ``run, pos, edge`` (the row label in ``edges``), ``u, v,
     street, boro``.
     """
     traf = seg.drop_duplicates("segment_id").set_index("segment_id")
+    edges = edges[~other_roadbed(edges, seg)]
     e = edges.assign(
         edge=edges.index,
         traf_dir=edges["segment_id"].map(traf["traf_dir"]).to_numpy(),
@@ -669,3 +672,77 @@ def merge_picks(picks: pd.DataFrame, original_new: np.ndarray, ptr: np.ndarray) 
                 }
             )
     return pd.DataFrame(rows).sort_values("first_pick").reset_index(drop=True)
+
+
+# What a corridor changes, block by block: a lane against one-way traffic,
+# an upgrade of paint or sharrows (or a shared street), or a lane where none is.
+KINDS = ("contraflow", "painted", "shared", "none")
+
+
+def describe(
+    plan: pd.DataFrame,
+    runs: Runs,
+    edges: pd.DataFrame,
+    seg: pd.DataFrame,
+    xy: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Name, place and break down each merged corridor; also list its blocks.
+
+    ``edges`` is the network before any pick. Per corridor: street,
+    heading, cross streets, metres of each kind of change (``KINDS``), and
+    ``opposite``: the facility the other direction has along it today,
+    weighted by length. Blocks: ``corridor, segment_id, dir, u, v, new,
+    kind`` (kind is blank on blocks protected already).
+    """
+    names = cross_streets(seg)
+    first = runs.table.groupby("run").first()
+    other = edges.groupby(["segment_id", "dir"])["facility"].first()
+    rows, blocks = [], []
+    for i, c in enumerate(plan.itertuples(), start=1):
+        street, boro = first.loc[c.run, "street"], int(first.loc[c.run, "boro"])
+        part = runs.table[runs.table["run"] == c.run]
+        nodes = [*part["u"], part["v"].iloc[-1]]
+        a, b = nodes[c.s], nodes[c.t]
+        e = edges.loc[stretch_edges(runs, c.run, c.s, c.t)]
+        new = e["cost"].to_numpy() > np.maximum(e["length_m"].to_numpy(), MIN_COST) * (1 + 1e-9)
+        kind = np.select(
+            [against_traffic(e, seg), e["facility"] == "painted", e["facility"] == "shared"],
+            list(KINDS[:3]),
+            KINDS[3],
+        )
+        kind = np.where(new, kind, "")
+        flip = e["dir"].map({"fwd": "rev", "rev": "fwd"})
+        opp = pd.Series(
+            other.reindex(list(zip(e["segment_id"], flip, strict=True))).fillna("none").to_numpy()
+        )
+        opp_m = pd.Series(e["length_m"].to_numpy()).where(new, 0.0).groupby(opp).sum()
+        rows.append(
+            {
+                "corridor": i,
+                "street": street,
+                "boro": boro,
+                "heading": heading(
+                    xy.loc[b, "x"] - xy.loc[a, "x"], xy.loc[b, "y"] - xy.loc[a, "y"], boro
+                ),
+                "from_street": node_label(nodes, c.s, street, names),
+                "to_street": node_label(nodes, c.t, street, names),
+                "from_node": a,
+                "to_node": b,
+                "round": c.round + 1,
+                "picks": c.picks,
+                "new_m": c.new_m,
+                "length_m": e["length_m"].sum(),
+                # separate pieces of new lane, joined across blocks protected already
+                "gaps": int((np.diff(np.concatenate([[0], new.astype(int)])) == 1).sum()),
+                **{f"{k}_m": float(e["length_m"].to_numpy()[kind == k].sum()) for k in KINDS},
+                "opposite": str(opp_m.idxmax()),
+                "saved_in_plan": c.saved_in_plan,
+                "saved_alone": c.saved_alone,
+                "trips_alone": c.trips_alone,
+                "blocks_alone": c.blocks_alone,
+            }
+        )
+        blocks.append(e[["segment_id", "dir", "u", "v"]].assign(corridor=i, new=new, kind=kind))
+    out = pd.DataFrame(rows)
+    out["kind"] = out[[f"{k}_m" for k in KINDS]].idxmax(axis=1).str.removesuffix("_m")
+    return out, pd.concat(blocks, ignore_index=True)

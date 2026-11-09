@@ -93,6 +93,8 @@ section { display: flex; flex-direction: column; }
 .key .val { color: var(--ink-2); font-size: 12px; }
 .key .newlane { border-top-width: 4px; border-color: var(--plan-new); }
 .key .oldlane { border-top-width: 2px; border-color: var(--plan-old); }
+.key .newcontra { border-top-width: 4px; border-top-style: dashed; border-color: var(--plan-new); }
+#corKinds { margin-top: 8px; }
 
 /* headline */
 .headline { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
@@ -140,6 +142,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 #card .dir { color: var(--ink-3); font-size: 12px; margin-bottom: 8px; }
 #card dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; font-size: 12px; }
 #card dt { color: var(--ink-3); }
+#card dt.part { padding-left: 10px; }
 #card dd { margin: 0; text-align: right; font-family: var(--font-num); }
 #card .verdict { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--rule); font-size: 13px; }
 #card .x { position: absolute; top: 6px; right: 6px; border: 0; background: none; padding: 4px 8px; font-size: 16px; color: var(--ink-3); }
@@ -227,7 +230,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     <div class="headline"><strong id="planKm">–</strong><span id="planKmLabel">km of new protected lane</span></div>
     <div class="sub" id="planLine"></div>
     <div class="key">
-      <i class="newlane"></i><span>New protected lane</span><span class="val num" id="planNewKm"></span>
+      <i class="newlane"></i><span>New protected lane, with traffic</span><span class="val num" id="planNewKm"></span>
+      <i class="newcontra"></i><span>New lane against one-way traffic</span><span class="val num" id="planContraKm"></span>
       <i class="oldlane"></i><span>Protected today</span><span class="val"></span>
     </div>
     <p class="note">Picked greedily. Each round builds the stretches that save the most stress per new metre, then scores every street again with them in place, so a corridor's value counts the ones before it.</p>
@@ -235,7 +239,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
   <section class="plan-only" aria-labelledby="cor-h" hidden>
     <h2 id="cor-h">Corridors</h2>
-    <div class="seg small" role="group" aria-label="Order corridors by">
+    <div class="seg small" role="group" aria-label="Which corridors">
+      <button type="button" data-kind="all" aria-pressed="true">All</button>
+      <button type="button" data-kind="new" aria-pressed="false">New lanes</button>
+      <button type="button" data-kind="upgrade" aria-pressed="false">Upgrades</button>
+      <button type="button" data-kind="contraflow" aria-pressed="false">Contraflow</button>
+    </div>
+    <div class="seg small" id="corKinds" role="group" aria-label="Order corridors by">
       <button type="button" data-sort="saved" aria-pressed="true">Most saved</button>
       <button type="button" data-sort="km" aria-pressed="false">Longest</button>
       <button type="button" data-sort="order" aria-pressed="false">Build order</button>
@@ -309,6 +319,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   let version = 0, deckgl, selected = null;
   let mode = "cost", flowView = "safest", widths;
   let planIndex = new Map(), selectedCorridor = null, corSort = "saved", corAll = false;
+  let corFilter = "all", planDashed = [];
   const COR_SHOWN = 25;
   const FLOW_MAX = 3000;     // trips a day at which the trips ramp saturates
   const DIFF_MAX = 1000;     // trips a day of difference at which it saturates
@@ -507,6 +518,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   // ---------- map ----------
   function layers() {
     const ext = new deck.PathStyleExtension({ offset: true });
+    const dashExt = new deck.PathStyleExtension({ offset: true, dash: true });
     return [
       new deck.PathLayer({
         id: "edges", data: edges, getPath: (e) => e.path, positionFormat: "XY",
@@ -522,6 +534,15 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
         getColor: palette.walk.concat(255), getWidth: 3, widthUnits: "pixels",
         getOffset: OFFSET * 1.4 / 3, extensions: [ext], pickable: false,
         updateTriggers: { getColor: version },
+      }),
+      // A new lane against one-way traffic is dashed, so it never reads as the
+      // lane already running the other way beside it.
+      new deck.PathLayer({
+        id: "contraflow", data: mode === "plan" ? planDashed : [], getPath: (o) => o.e.path, positionFormat: "XY",
+        getColor: (o) => o.color, getWidth: (o) => o.width, widthUnits: "pixels", getOffset: OFFSET,
+        getDashArray: [2.5, 1.5], dashJustified: true, extensions: [dashExt],
+        capRounded: false, jointRounded: false, pickable: true, autoHighlight: true,
+        highlightColor: [255, 196, 0, 255], updateTriggers: { getColor: version, getWidth: version },
       }),
     ];
   }
@@ -647,19 +668,27 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   }
 
   // ---------- new corridors ----------
-  // Each corridor's blocks wide in orange; the blocks it bridges that are
-  // protected already, and the rest of today's protected network, in blue.
+  // Each corridor's blocks wide in orange, dashed where the lane would run
+  // against one-way traffic; the blocks it bridges that are protected
+  // already, and the rest of today's protected network, in blue. A filter
+  // thins the corridors it leaves out; the selected corridor is in ink.
+  const CONTRAFLOW = 0;  // index into data.plan.kinds
   function paintPlan() {
     const m = edges.length;
     if (!widths || widths.length !== m) widths = new Float32Array(m);
+    planDashed = [];
     for (let i = 0; i < m; i++) {
       const e = edges[i], c = planIndex.get(2 * e.s + e.d);
       let rgb, w;
       if (c !== undefined) {
-        // The selected corridor in ink, so it stands out from the others in orange.
-        const sel = selectedCorridor === c[0], dim = selectedCorridor !== null && !sel;
+        const sel = selectedCorridor === c[0];
+        const dim = (selectedCorridor !== null && !sel) || !corridorShown(data.plan.corridors[c[0]]);
         rgb = c[1] ? (sel ? palette.walk : palette.planNew) : palette.planOld;
-        w = c[1] ? (sel ? 6 : dim ? 2.5 : 4) : (sel ? 3 : 2);
+        w = c[1] ? (sel ? 6 : dim ? 1.5 : 4) : (sel ? 3 : 2);
+        if (c[1] && c[2] === CONTRAFLOW) {
+          planDashed.push({ e, color: rgb.concat(255), width: w });
+          rgb = palette.faint; w = 0.6;
+        }
       } else if (kind[i] === 0 && factor[i] < 1 + 1e-6) { rgb = palette.planOld; w = 1.2; }
       else { rgb = palette.faint; w = 0.6; }
       colors[4 * i] = rgb[0]; colors[4 * i + 1] = rgb[1]; colors[4 * i + 2] = rgb[2]; colors[4 * i + 3] = 255;
@@ -670,22 +699,41 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   const HEADING = { N: "Northbound", E: "Eastbound", S: "Southbound", W: "Westbound" };
   // A corridor can join several gaps across blocks protected already; say so,
   // or "E 35 St → E 2 St" reads as one 3 km project.
+  const OPPOSITE = { N: "Southbound", E: "Westbound", S: "Northbound", W: "Eastbound" };
+  const KIND_SHORT = { none: "new lane", painted: "paint to protected", shared: "sharrows to protected", contraflow: "contraflow" };
+  const KIND_LONG = {
+    none: "Lane where there is none", painted: "Painted lane made protected",
+    shared: "Sharrows or shared street made protected", contraflow: "Against one-way traffic",
+  };
+  const FAC_LABEL = { separated: "Protected lane", painted: "Painted lane", shared: "Sharrows or shared street", none: "No bike lane" };
   function corridorSpan(c) {
     const gaps = c.gaps > 1 ? ` (${c.gaps} gaps)` : "";
-    return `${HEADING[c.heading] || ""} · ${c.from} → ${c.to}${gaps} · ${c.boro}`;
+    return `${HEADING[c.heading] || ""} ${KIND_SHORT[c.kind]} · ${c.from} → ${c.to}${gaps} · ${c.boro}`;
+  }
+  function corridorShown(c) {
+    if (corFilter === "all") return true;
+    if (corFilter === "new") return c.kind === "none";
+    if (corFilter === "upgrade") return c.kind === "painted" || c.kind === "shared";
+    return c.kind === "contraflow";
   }
   const kmText = (m) => (m / 1000).toFixed(m < 10000 ? 2 : 1) + " km";
   function showCorridorCard(ci, e) {
     selected = e;
     const c = data.plan.corridors[ci];
     const card = document.getElementById("card");
-    const here = e ? (planIndex.get(2 * e.s + e.d)[1]
-      ? "This block would get a new protected lane."
-      : "This block is protected already: the corridor joins the lanes either side of it.") : "";
+    const block = e ? planIndex.get(2 * e.s + e.d) : null;
+    const here = !block ? ""
+      : !block[1] ? "This block is protected already: the corridor joins the lanes either side of it."
+      : block[2] === CONTRAFLOW ? `This block would get a ${(HEADING[c.heading] || "").toLowerCase()} lane against one-way traffic.`
+      : "This block would get a new protected lane.";
+    const parts = data.plan.kinds.filter((k) => c.kinds[k] > 0)
+      .map((k) => `<dt class="part">${KIND_LONG[k]}</dt><dd>${kmText(c.kinds[k])}</dd>`).join("");
     card.innerHTML = `<button type="button" class="x" aria-label="Close">×</button>
       <h4></h4><div class="dir"></div>
       <dl>
         <dt>New protected lane</dt><dd>${kmText(c.new_m)}</dd>
+        ${parts}
+        <dt>${OPPOSITE[c.heading] || "Other direction"} today</dt><dd>${FAC_LABEL[c.opposite] || "–"}</dd>
         <dt>Trips a day that would ride it</dt><dd>${c.trips_day.toLocaleString()}</dd>
         <dt>Stress saved a year</dt><dd>${c.saved.toLocaleString()} cost-km</dd>
         <dt>Its blocks one at a time</dt><dd>${c.blocks.toLocaleString()} cost-km</dd>
@@ -699,11 +747,20 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   }
 
   function buildPlan(plan) {
-    for (const [s, d, c, isNew] of plan.blocks) planIndex.set(2 * s + d, [c, isNew]);
+    for (const [s, d, c, isNew, k] of plan.blocks) planIndex.set(2 * s + d, [c, isNew, k]);
     document.getElementById("plan-h").textContent = `Build-out of ${plan.budget_km.toLocaleString()} km`;
     document.getElementById("planKm").textContent = plan.new_km.toFixed(1);
     document.getElementById("planKmLabel").textContent = `km of new protected lane in ${plan.corridors.length} corridors`;
-    document.getElementById("planNewKm").textContent = plan.new_km.toFixed(1) + " km";
+    const contra = plan.corridors.reduce((t, c) => t + c.kinds.contraflow, 0) / 1000;
+    document.getElementById("planNewKm").textContent = (plan.new_km - contra).toFixed(1) + " km";
+    document.getElementById("planContraKm").textContent = contra.toFixed(1) + " km";
+    document.querySelectorAll("[data-kind]").forEach((b) => {
+      b.onclick = () => {
+        corFilter = b.dataset.kind; corAll = false;
+        document.querySelectorAll("[data-kind]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+        renderCorridors(); paintPlan(); version++; render();
+      };
+    });
     document.getElementById("planLine").textContent =
       `Saves ${(plan.saved_share * 100).toFixed(1)}% of the stress on every ${plan.year} Citi Bike trip; ` +
       `${plan.helped_day.toLocaleString()} trips a day (${(plan.helped_share * 100).toFixed(0)}%) ride at least one new block.`;
@@ -729,7 +786,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   };
   function renderCorridors() {
     const plan = data.plan, how = COR_ORDER[corSort];
-    const order = plan.corridors.map((c, i) => i).sort((a, b) =>
+    const order = plan.corridors.map((c, i) => i).filter((i) => corridorShown(plan.corridors[i])).sort((a, b) =>
       how.key(plan.corridors[a], a) - how.key(plan.corridors[b], b) || a - b);
     const shown = corAll ? order : order.slice(0, COR_SHOWN);
     const list = document.getElementById("corList");
@@ -751,6 +808,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
       };
       list.appendChild(li);
     });
+    if (!order.length) list.innerHTML = '<li class="note">No corridor of this kind in the plan.</li>';
     const more = document.getElementById("corMore");
     more.hidden = order.length <= COR_SHOWN;
     more.textContent = corAll ? `Show the first ${COR_SHOWN}` : `Show all ${order.length.toLocaleString()}`;
@@ -913,8 +971,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
       initialViewState: { longitude: -73.965, latitude: 40.725, zoom: 11.6, minZoom: 9, maxZoom: 19 },
       controller: true,
       getCursor: ({ isHovering }) => (isHovering ? "pointer" : "grab"),
-      onHover: (info) => { if (info.object && window.matchMedia("(hover: hover)").matches) showCard(info.object); },
-      onClick: (info) => { if (info.object) showCard(info.object); },
+      onHover: (info) => { if (info.object && window.matchMedia("(hover: hover)").matches) showCard(info.object.e || info.object); },
+      onClick: (info) => { if (info.object) showCard(info.object.e || info.object); },
       layers: [],
     });
     document.getElementById("status").hidden = true;

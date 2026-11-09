@@ -244,3 +244,57 @@ def test_a_protected_plaza_joins_the_run_but_is_never_built():
     a = runs.ptr[run]
     km = 1000.0  # lion_row's default length
     assert runs.new[a : a + 4].tolist() == pytest.approx([0, km, km, 2 * km])
+
+
+def divided_street():
+    # Two one-way roadbeds of one divided avenue: 1 -> 2 -> 3 north, 6 -> 5 -> 4 south.
+    rows = [
+        lion_row(1, 1, 2, "W", street="PARK", RB_Layer="R"),
+        lion_row(2, 2, 3, "W", street="PARK", RB_Layer="R"),
+        lion_row(3, 4, 5, "A", street="PARK", RB_Layer="R"),
+        lion_row(4, 5, 6, "A", street="PARK", RB_Layer="R"),
+    ]
+    seg = lion.prepare(pd.DataFrame(rows))
+    edges = build_edges(
+        seg,
+        lanes.facilities(pd.DataFrame(columns=["segmentid", "status", "ft_facilit", "tf_facilit"])),
+    )
+    xy = pd.DataFrame(
+        {"x": [0.0, 0.0, 0.0, 60.0, 60.0, 60.0], "y": [0.0, 3000.0, 6000.0, 0.0, 3000.0, 6000.0]},
+        index=[1, 2, 3, 4, 5, 6],
+    )
+    return seg, edges, xy
+
+
+def test_a_divided_street_takes_each_direction_on_its_own_roadbed():
+    seg, edges, xy = divided_street()
+    t = corridors.street_runs(edges, seg, xy)
+    paths = sorted((*g["u"], g["v"].iloc[-1]) for _, g in t.groupby("run"))
+    assert paths == [(1, 2, 3), (6, 5, 4)]  # no run against either roadbed's traffic
+
+
+def test_describe_says_what_each_corridor_changes():
+    seg, edges, table, runs, _ = setup()
+    picks, _ = corridors.build_out(
+        edges,
+        table,
+        OD.rename(columns={"trips": "weight"}),
+        budget_m=10_000,
+        log=lambda _: None,
+        prices=TOY_PRICES,
+    )
+    plan = corridors.merge_picks(picks, runs.new, runs.ptr)
+    plan[["saved_alone", "trips_alone", "blocks_alone"]] = 0.0
+    out, blocks = corridors.describe(plan, runs, edges, seg, XY)
+    south = out[(out["street"] == "FIFTH") & (out["heading"] == "S")].iloc[0]
+    assert (south["kind"], south["none_m"], south["contraflow_m"]) == (
+        "none",
+        pytest.approx(4 * AVE),
+        0,
+    )
+    assert south["opposite"] == "none"  # northbound Fifth is walked today
+    north = out[(out["street"] == "FIFTH") & (out["heading"] == "N")].iloc[0]
+    assert north["kind"] == "contraflow"
+    assert north["opposite"] == "none"
+    mine = blocks[blocks["corridor"] == south["corridor"]]
+    assert set(mine.loc[mine["new"], "kind"]) == {"none"}

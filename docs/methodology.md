@@ -318,7 +318,10 @@ A **stretch** is consecutive blocks of one street in one direction. Each
 street is chained into runs, taking the straightest continuation at every
 node of the same name, and ending at a turn sharper than 60° or a U-turn.
 Both directions are runs, so the wrong way down a one-way street is a
-contraflow corridor. Protect a stretch and a trip can join it at any node
+contraflow corridor. The exception is a divided street, which LION draws as
+two one-way roadbeds (Park Ave, Queens Blvd): the other roadbed carries that
+direction, so a lane for it goes there, never against this one's traffic.
+The single-block list follows the same rule. Protect a stretch and a trip can join it at any node
 `i` and leave at any later node `j`:
 
 ```
@@ -395,27 +398,35 @@ half a cost-metre is rounding and is not counted.
 An 80 km build-out on the 2025 trips (`python -m bike_network corridors`)
 took 11 rounds, at prices that fell from 178,000 to 100,000 cost-m a year
 per new metre. It saves 10.4% of the stress on every Citi Bike trip, and
-79,000 trips a day (65%) ride at least one new block.
+79,000 trips a day (65%) ride at least one new block. Of the new lane,
+27.5 km goes where there is none, 16.5 km makes a painted lane protected,
+11.2 km does the same for sharrows or a shared street, and 25.0 km runs
+against one-way traffic.
 
-- **Most of the budget fills gaps.** 265 of the 279 corridors are under a
-  kilometre (median 150 m), and they hold 55 km and three quarters of the
+- **Most of the budget fills gaps.** 253 of the 269 corridors are under a
+  kilometre (median 150 m), and they hold 54 km and three quarters of the
   saving. Most are missing blocks in lanes that are already busy, such as
-  nine short gaps in 2nd Ave's lane between 123rd St and 2nd St.
-- **Fourteen corridors run a kilometre or more** and hold the other 26 km.
-  Built alone, they save 3.9 times what their blocks save one at a time,
-  which is why the block list missed them. The largest are Madison Ave
-  northbound from 39th to 103rd St (5.2 km), Park Ave southbound from 98th
-  to 47th St (4.1 km), Lafayette Ave westbound in Brooklyn (2.1 km), and
-  5th Ave southbound from 44th to 23rd St (1.7 km, 4,800 trips a day).
-- **The rounds reshape corridors.** In round 1, 5th Ave's stretch ran from
-  110th St to 23rd St. By round 8, Park Ave southbound had taken the Upper
-  East Side's riders, and the 5th Ave stretch worth building was 44th to
-  23rd St.
-- **Manhattan gets 63 km**, Brooklyn 16, Queens 1.4 and the Bronx 0.1. That
+  short gaps in 2nd Ave's lane.
+- **Sixteen corridors run a kilometre or more** and hold the other 26 km.
+  Built alone, they save 3.3 times what their blocks save one at a time,
+  which is why the block list missed them. The largest are Park Ave
+  southbound from 98th to 47th St (4.1 km), DeKalb Ave westbound in
+  Brooklyn (3.1 km, paint made protected), Nostrand Ave southbound (2.3 km)
+  and a southbound contraflow lane on 8th Ave from 45th to 20th St
+  (2.0 km).
+- **The rounds reshape corridors.** In round 1, 5th Ave southbound was worth
+  building from 110th St to 23rd St. By round 10, Park Ave and Park Ave
+  South southbound had taken the East Side's riders, and what was left on
+  5th Ave was 44th to 29th St (1.2 km, 2,600 trips a day). Madison Ave
+  northbound from 39th to 103rd St saves 781,000 on its own today, 151,000
+  per new metre; with the rest of the plan built, 85,000 per new metre,
+  under the last round's price, so it is not built.
+- **Manhattan gets 62 km**, Brooklyn 16, Queens 1.4 and the Bronx 0.1. That
   is where Citi Bike's trips are, not a judgment on where lanes are needed.
-- **35% of the new lane runs against one-way traffic** (contraflow). With
-  length the only cost, nothing weighs what a contraflow lane on an avenue
-  would take space from.
+- **31% of the new lane runs against one-way traffic** (contraflow), often
+  beside a protected lane in the other direction: 8th Ave, 6th Ave and
+  Grand St each get one. With length the only cost, nothing weighs what a
+  contraflow lane on an avenue would take space from.
 
 Ranking by saving per new metre, with no price to size the stretches,
 spent the same 80 km on 361 fragments that saved 9.4%. Its stretches
@@ -424,14 +435,16 @@ corridors arrived block by block, and the budget ran out before most of
 them were complete.
 
 A second build-out on an independent sample of 40,000 station pairs
-(`--seed 1`) shares 64% of the new blocks, 74% weighted by saving. Both
-build Park Ave southbound from 98th to 47th St, Park Ave South, East 72nd
-St, Lafayette St, Madison Ave northbound through the 50s and 60s, and 5th
-Ave southbound to 23rd St (from 44th St in one, 55th St in the other).
-Where two parallel streets serve the same riders, the sample decides which
-one gets the lane: Lafayette Ave in Brooklyn in one, DeKalb Ave a block
-south in the other. The 6th Ave contraflow, Grand St and 8th Ave are built
-in one sample only. Read a corridor as "this street or the next one over".
+(`--seed 1`) shares 68% of the new blocks, 76% weighted by saving. Both
+build DeKalb Ave westbound, East 72nd St, Lafayette St, Bleecker St, Park
+Ave South, the Grand St contraflow lane and 5th Ave northbound beside the
+park. Where two parallel streets serve the same riders, the sample decides
+which one gets the lane. The clearest case is the East Side's long
+southbound corridor. This plan builds Park Ave from 98th to 47th St and 5th
+Ave from 44th to 29th St; the other builds 5th Ave the whole way from 110th
+St to Washington Square (7.2 km) and Park Ave only from 42nd to 32nd St.
+The 8th Ave and 6th Ave contraflow lanes are mostly in one plan only. Read
+a corridor as "this street or the next one over".
 
 ### Limits
 

@@ -90,3 +90,21 @@ def test_sample_weights_add_up_to_the_trips():
     assert pairs["weight"].sum() == pytest.approx(OD["trips"].sum())
     assert set(zip(pairs["o"], pairs["d"], strict=True)) <= set(zip(OD["o"], OD["d"], strict=True))
     assert np.isclose(pairs["weight"].iloc[0], OD["trips"].sum() / 500)
+
+
+def test_no_contraflow_candidate_on_one_roadbed_of_a_divided_street():
+    rows = [
+        lion_row(1, 1, 2, "W", RB_Layer="R"),  # northbound roadbed
+        lion_row(2, 4, 3, "W", RB_Layer="R"),  # southbound roadbed, drawn north to south
+        lion_row(3, 5, 6, "W"),  # an undivided one-way street
+    ]
+    seg = lion.prepare(pd.DataFrame(rows))
+    fac = lanes.facilities(
+        pd.DataFrame(columns=["segmentid", "status", "ft_facilit", "tf_facilit"])
+    )
+    c = candidates.candidate_edges(build_edges(seg, fac), seg).set_index(["segment_id", "dir"])[
+        "kind"
+    ]
+    assert ("0000001", "rev") not in c.index
+    assert ("0000002", "rev") not in c.index
+    assert c[("0000003", "rev")] == "contraflow"

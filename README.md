@@ -62,7 +62,7 @@ it decided and what it could not are in
 
 `python -m bike_network candidates` scores every block that could take a
 protected facility (a lane where there is none, a contraflow lane against
-one-way traffic, a riding path on a walkway) by the stress a year of Citi
+one-way traffic on an undivided street, a riding path on a walkway) by the stress a year of Citi
 Bike trips would save if it had one, including trips that avoid the block
 today. It scores two independent samples of 40,000 station pairs and reports
 how far their rankings agree, then writes `candidates.parquet`.

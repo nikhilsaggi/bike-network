@@ -95,6 +95,7 @@ def prepare(raw: pd.DataFrame) -> pd.DataFrame:
             "u": _number(df["NodeIDFrom"]).astype("int64"),
             "v": _number(df["NodeIDTo"]).astype("int64"),
             "traf_dir": df["TrafDir"],
+            "rb_layer": df["RB_Layer"],
             "bike_dir": df["BIKE_TRAFDIR"],
             "bike_lane": _code(df["BikeLane"]),
             "vehicle_only": df["NonPed"] == "V",

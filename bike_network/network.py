@@ -26,6 +26,29 @@ MIN_COST = 0.01
 CAR_DIRS = frozenset({"T", "W", "A"})
 
 
+def against_traffic(edges: pd.DataFrame, seg: pd.DataFrame) -> np.ndarray:
+    """Whether each directed edge runs against one-way car traffic.
+
+    ``seg`` maps segment ids to LION's ``traf_dir``: ``W`` is one-way along
+    the segment, ``A`` one-way against it.
+    """
+    traf = seg.drop_duplicates("segment_id").set_index("segment_id")["traf_dir"]
+    t = edges["segment_id"].map(traf).to_numpy()
+    d = edges["dir"].to_numpy()
+    return ((d == "fwd") & (t == "A")) | ((d == "rev") & (t == "W"))
+
+
+def other_roadbed(edges: pd.DataFrame, seg: pd.DataFrame) -> np.ndarray:
+    """Whether each edge runs against traffic on one roadbed of a divided street.
+
+    LION draws a divided street (Park Ave, Queens Blvd) as two one-way
+    roadbeds (``rb_layer`` R). The other roadbed carries that direction, so
+    a lane for it belongs there, not against this one's traffic.
+    """
+    layer = seg.drop_duplicates("segment_id").set_index("segment_id")["rb_layer"]
+    return against_traffic(edges, seg) & (edges["segment_id"].map(layer).to_numpy() == "R")
+
+
 @dataclass(frozen=True)
 class CostParams:
     """The cost model's tunable numbers; :meth:`from_config` reads ``config.py``.

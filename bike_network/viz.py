@@ -22,6 +22,7 @@ import pandas as pd
 import shapely
 
 from . import config
+from .corridors import KINDS
 
 if TYPE_CHECKING:
     import geopandas as gpd
@@ -173,8 +174,9 @@ def plan_layer(seg: gpd.GeoDataFrame, rank: pd.Series, plan: dict[str, Any]) -> 
     ``plan`` holds ``corridors`` and ``blocks`` (its two parquet files) and
     ``summary`` (its JSON). ``rank`` maps segment id to the payload's
     segment order. Each block is ``[segment, direction, corridor index,
-    new]``, where ``new`` is 0 for a block the corridor bridges that was
-    protected already.
+    new, kind]``: ``new`` is 0 for a block the corridor bridges that was
+    protected already, and ``kind`` indexes ``corridors.KINDS`` (-1 when not
+    new).
     """
     cors, blocks = plan["corridors"], plan["blocks"]
     blocks = blocks[blocks["segment_id"].isin(rank.index)]
@@ -191,6 +193,9 @@ def plan_layer(seg: gpd.GeoDataFrame, rank: pd.Series, plan: dict[str, Any]) -> 
                 "from": r.from_street,
                 "to": r.to_street,
                 "new_m": round(r.new_m),
+                "kind": r.kind,
+                "kinds": {k: round(getattr(r, f"{k}_m")) for k in KINDS},
+                "opposite": r.opposite,
                 "gaps": int(r.gaps),
                 "round": int(r.round),
                 "trips_day": round(r.trips_alone / 365),
@@ -200,13 +205,19 @@ def plan_layer(seg: gpd.GeoDataFrame, rank: pd.Series, plan: dict[str, Any]) -> 
                 "bbox": [round(w, 5), round(s, 5), round(e, 5), round(n, 5)],
             }
         )
+    code = {k: i for i, k in enumerate(KINDS)}
     cells = [
-        [int(rank[sid]), 0 if d == "fwd" else 1, int(c) - 1, int(new)]
-        for sid, d, c, new in zip(
-            blocks["segment_id"], blocks["dir"], blocks["corridor"], blocks["new"], strict=True
+        [int(rank[sid]), 0 if d == "fwd" else 1, int(c) - 1, int(new), code.get(kind, -1)]
+        for sid, d, c, new, kind in zip(
+            blocks["segment_id"],
+            blocks["dir"],
+            blocks["corridor"],
+            blocks["new"],
+            blocks["kind"],
+            strict=True,
         )
     ]
-    return {**plan["summary"], "corridors": rows, "blocks": cells}
+    return {**plan["summary"], "kinds": list(KINDS), "corridors": rows, "blocks": cells}
 
 
 def export(
