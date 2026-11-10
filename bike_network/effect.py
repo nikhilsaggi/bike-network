@@ -15,6 +15,7 @@ what they gain.
 
 from __future__ import annotations
 
+import heapq
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from .network import Graph
 
 KEY = ["segment_id", "dir", "u", "v"]
+PLACE_SEARCH_M = 400  # how far along its street a mid-block node looks for a cross street
 # How a route's metres are split, in the viewer's order.
 MIX = ("separated", "painted", "shared", "none", "walked")
 
@@ -334,10 +336,43 @@ def distinct(
 
 
 def place_names(seg: pd.DataFrame) -> pd.Series:
-    """Name every LION node by the two shortest street names meeting there: ``5 Ave & W 49 St``."""
+    """Name every LION node by the two shortest street names meeting there: ``5 Ave & W 49 St``.
 
-    def name(streets: set[str]) -> str:
-        picked = sorted(streets, key=lambda s: (len(s), s))[:2]
-        return " & ".join(short_name(s) for s in sorted(picked))
+    A node partway along a block, where only one street meets, is named for
+    the nearest cross street along that street, by length:
+    ``Greenwich Ave near Charles St``. With none within ``PLACE_SEARCH_M``
+    it keeps the street's name alone.
+    """
+    names = cross_streets(seg)
+    shortest = lambda streets: sorted(streets, key=lambda s: (len(s), s))  # noqa: E731
+    along: dict[tuple[int, str], list[tuple[int, float]]] = {}
+    for u, v, street, m in zip(seg["u"], seg["v"], seg["street"], seg["length_m"], strict=True):
+        along.setdefault((u, street), []).append((v, m))
+        along.setdefault((v, street), []).append((u, m))
 
-    return cross_streets(seg).map(name)
+    def near(node: int, street: str) -> str | None:
+        best, todo, seen = {node: 0.0}, [(0.0, node)], set()
+        while todo:
+            d, n = heapq.heappop(todo)
+            if n in seen or d > PLACE_SEARCH_M:
+                continue
+            seen.add(n)
+            others = names.get(n, set()) - {street}
+            if others:
+                return shortest(others)[0]
+            for nxt, m in along.get((n, street), []):
+                if d + m < best.get(nxt, np.inf):
+                    best[nxt] = d + m
+                    heapq.heappush(todo, (d + m, nxt))
+        return None
+
+    def name(node: int, streets: set[str]) -> str:
+        picked = shortest(streets)[:2]
+        if len(picked) == 2:
+            return " & ".join(short_name(s) for s in sorted(picked))
+        cross = near(node, picked[0])
+        return (
+            f"{short_name(picked[0])} near {short_name(cross)}" if cross else short_name(picked[0])
+        )
+
+    return pd.Series({n: name(n, s) for n, s in names.items()}, dtype=object)

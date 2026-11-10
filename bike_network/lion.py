@@ -14,7 +14,11 @@ LION is NYC DCP's street centerline. Its codes, from the release metadata:
   city, borough and neighborhood scale. Both are used as traffic predictors.
 
 A segment can appear on several rows that differ only in address ranges or
-alternate names, so rows are deduplicated on (segment, from node, to node).
+alternate names, sometimes drawn the other way (``66 STREET`` from one node,
+``BQE EB ENTRANCE QUEENS BLVD WB`` back from the other, its one-way flag
+flipped to match). Rows are deduplicated on the segment and its pair of
+nodes in either order, keeping the first, so a segment id names one row and
+each direction of it one edge.
 """
 
 from __future__ import annotations
@@ -115,7 +119,11 @@ def prepare(raw: pd.DataFrame) -> pd.DataFrame:
     if "geometry" in df:
         out["geometry"] = df["geometry"]
     out = out[out["u"] != out["v"]]  # a loop carries no one anywhere
-    return out.drop_duplicates(subset=["segment_id", "u", "v"]).reset_index(drop=True)
+    ends = pd.DataFrame(
+        {"lo": out[["u", "v"]].min(axis=1), "hi": out[["u", "v"]].max(axis=1)}, index=out.index
+    )
+    alias = pd.concat([out["segment_id"], ends], axis=1).duplicated()
+    return out[~alias].reset_index(drop=True)
 
 
 def read(gdb: Path, *, geometry: bool = True) -> pd.DataFrame | gpd.GeoDataFrame:

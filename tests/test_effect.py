@@ -184,12 +184,45 @@ def test_place_names_take_the_two_shortest_streets():
             "u": [1, 2, 1],
             "v": [2, 3, 4],
             "street": ["5 AVENUE", "WEST 49 STREET", "AVENUE OF THE AMERICAS"],
+            "length_m": [80.0, 250.0, 80.0],
         }
     )
     names = effect.place_names(seg)
     assert names[2] == "5 Ave & W 49 St"
     assert names[1] == "5 Ave & Ave Of The Americas"
-    assert names[4] == "Ave Of The Americas"
+    # node 4 is the far end of 6th Ave's block: named for the cross street at its other end
+    assert names[4] == "Ave Of The Americas near 5 Ave"
+    assert names[3] == "W 49 St near 5 Ave"
+
+
+def test_a_mid_block_node_takes_the_nearest_cross_street_along_its_own_street():
+    m = [100.0, 30.0, 500.0, 50.0]
+    seg = pd.DataFrame(
+        {
+            # Greenwich Ave runs A(1) - 2 - 3 - B(4); Charles St crosses at 1, Bank St at 4,
+            # and a far-off street that is not Greenwich Ave touches node 3
+            "u": [1, 2, 3, 1],
+            "v": [2, 3, 4, 9],
+            "street": [
+                "GREENWICH AVENUE",
+                "GREENWICH AVENUE",
+                "GREENWICH AVENUE",
+                "CHARLES STREET",
+            ],
+            "length_m": m,
+        }
+    )
+    seg = pd.concat(
+        [seg, pd.DataFrame({"u": [4], "v": [8], "street": ["BANK STREET"], "length_m": [60.0]})],
+        ignore_index=True,
+    )
+    names = effect.place_names(seg)
+    assert names[2] == "Greenwich Ave near Charles St"  # 100 m back, not 530 m on
+    assert names[3] == "Greenwich Ave near Charles St"  # 130 m against 500 m
+    lone = effect.place_names(
+        pd.DataFrame({"u": [1], "v": [2], "street": ["ONE STREET"], "length_m": [9.0]})
+    )
+    assert lone[1] == "One St"
 
 
 def test_distinct_sorts_by_share_saved_and_lists_one_of_each_alike_pair():

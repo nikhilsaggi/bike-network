@@ -164,6 +164,28 @@ def test_prepare_filters_and_dedupes():
     assert seg.loc[seg["segment_id"] == "0000001", "length_m"].item() == pytest.approx(1000)
 
 
+def test_prepare_keeps_one_row_of_a_segment_drawn_both_ways():
+    # LION draws 66 St's ramp twice: once one-way along it, once named for the
+    # BQE entrance from the other node, one-way against. One street, one way.
+    rows = [
+        lion_row(1, 1, 2, "W", street="66 STREET"),
+        lion_row(1, 2, 1, "A", street="BQE EB ENTRANCE QUEENS BLVD WB"),
+        lion_row(2, 2, 3),
+    ]
+    seg = lion.prepare(pd.DataFrame(rows))
+    assert seg["segment_id"].is_unique
+    kept = seg[seg["segment_id"] == "0000001"].iloc[0]
+    assert (kept["street"], kept["u"], kept["v"], kept["traf_dir"]) == ("66 STREET", 1, 2, "W")
+    edges = build_edges(
+        direction_volumes(seg, None),
+        lanes.facilities(pd.DataFrame(columns=["segmentid", "status", "ft_facilit", "tf_facilit"])),
+    )
+    assert not edges.duplicated(["segment_id", "dir"]).any()
+    one = edges[edges["segment_id"] == "0000001"].set_index("dir")
+    assert one.loc["fwd", "mode"] == "ride"  # with the traffic
+    assert one.loc["rev", "mode"] == "walk"
+
+
 def test_graph_keeps_cheapest_parallel_edge_and_maps_back():
     e = build(
         [lion_row(1, 1, 2, "T"), lion_row(2, 1, 2, "T")],
