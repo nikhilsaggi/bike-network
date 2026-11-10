@@ -203,6 +203,13 @@ h2.later { margin-top: 18px; }
 #card .cmp th:first-child, #card .cmp td:first-child { text-align: left; padding-left: 0; font-family: var(--font-ui); color: var(--ink-3); }
 #card .cmp tr.total td { border-top: 1px solid var(--rule); padding-top: 4px; color: var(--ink); }
 #card .seetrip { margin-top: 10px; width: 100%; }
+#shiftRamp { margin-top: 12px; }
+#planPane { position: absolute; z-index: 1; top: 0; bottom: 0; left: 50%; right: 0; border-left: 1px solid var(--rule); }
+#map.stacked #planPane { left: 0; top: 50%; border-left: 0; border-top: 1px solid var(--rule); }
+.pane-label {
+  position: absolute; z-index: 2; top: 12px; left: 12px; font-size: 11px; font-weight: 600; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--ink-2); background: var(--plane); padding: 3px 7px; border-radius: 3px; border: 1px solid var(--rule);
+}
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
@@ -272,9 +279,13 @@ h2.later { margin-top: 18px; }
 
   <section class="plan-only" data-pv="riders" aria-labelledby="shift-h" hidden>
     <h2 id="shift-h">Change in trips a day, each direction</h2>
+    <div class="seg small" role="group" aria-label="How to compare today and the plan">
+      <button type="button" data-compare="change" aria-pressed="true">Change</button>
+      <button type="button" data-compare="split" aria-pressed="false">Side by side</button>
+    </div>
     <div id="shiftRamp" class="ramp"></div>
     <div class="ramp-ticks num" id="shiftTicks"></div>
-    <div class="ramp-ends"><span>Fewer with the plan</span><span>More</span></div>
+    <div class="ramp-ends" id="shiftEnds"><span>Fewer with the plan</span><span>More</span></div>
     <p class="note" id="shiftNote"></p>
   </section>
 
@@ -288,7 +299,7 @@ h2.later { margin-top: 18px; }
     <h2 id="ex-h">Example trips</h2>
     <ol id="exList" class="ranked"></ol>
     <div class="buttons"><button type="button" id="exMore" hidden></button></div>
-    <p class="note">One real trip for each corridor, among the station pairs that gain most. Stress saved on the trip, and its trips a day. Select one to see both routes.</p>
+    <p class="note" id="exNote"></p>
   </section>
 
   <section class="plan-only" data-pv="riders" aria-labelledby="moves-h" hidden>
@@ -440,6 +451,10 @@ h2.later { margin-top: 18px; }
   const NO_ROUTE = { today: [], plan: [], fresh: [] };
   let route = NO_ROUTE, stationObjs = [], exampleOf = new Map();
   const EX_SHOWN = 8, ST_SHOWN = 8;
+  // "change" maps trips a day with the plan minus today; "split" puts today's
+  // map and the plan's side by side, the second in its own deck.gl pane.
+  let compare = "change", planDeck = null, paneExt = null, planColors, planWidths, shiftNotes = {};
+  const SPLIT_STACK_PX = 640;  // a map narrower than this stacks the two panes
   const SAVED_MAX = 0.2;     // share of a station's stress saved at which its colour saturates
   const ST_LIST_MIN = 100;   // trips a day for a station to make the list
   const SHIFT_FAINT = 20;    // a change of fewer trips a day than this is drawn faint
@@ -829,7 +844,10 @@ h2.later { margin-top: 18px; }
       ...selectionLayers(),
     ];
   }
-  function render() { if (deckgl) deckgl.setProps({ layers: layers() }); }
+  function render() {
+    if (deckgl) deckgl.setProps({ layers: layers() });
+    if (planDeck) planDeck.setProps({ layers: paneLayers() });
+  }
 
   // ---------- selection ----------
   // A click selects one direction of a block, and it stays selected until
@@ -977,16 +995,28 @@ h2.later { margin-top: 18px; }
       let rgb, w;
       if (Math.abs(v) < 0.5) { rgb = palette.faint; w = 0.6; }
       else if (diff) [rgb, w] = diffStyle(v);
-      else {
-        rgb = mix(palette.flowLo, palette.flowHi, logPos(v, FLOW_MAX));
-        w = 0.8 + 4 * Math.sqrt(Math.min(v / FLOW_MAX, 1));
-      }
+      else [rgb, w] = flowStyle(v);
       colors[4 * i] = rgb[0]; colors[4 * i + 1] = rgb[1]; colors[4 * i + 2] = rgb[2]; colors[4 * i + 3] = 255;
       widths[i] = w;
     }
     drawFlowLegend();
   }
 
+  // Trips a day: light to dark blue on a log scale, wider with more.
+  function flowStyle(v) {
+    if (v < 0.5) return [palette.faint, 0.6];
+    return [mix(palette.flowLo, palette.flowHi, logPos(v, FLOW_MAX)), 0.8 + 4 * Math.sqrt(Math.min(v / FLOW_MAX, 1))];
+  }
+  function flowRamp() {
+    const stops = [], ticks = [];
+    for (let i = 0; i <= 20; i++) stops.push(`${css(mix(palette.flowLo, palette.flowHi, i / 20))} ${(i / 20 * 100).toFixed(1)}%`);
+    // no 1,000 tick: on a 328 px rail it runs into the 3,000+ at the end
+    for (const v of [1, 10, 100]) {
+      ticks.push(`<span class="c" style="left:${(logPos(v, FLOW_MAX) * 100).toFixed(1)}%">${v.toLocaleString()}</span>`);
+    }
+    ticks.push(`<span style="left:100%">${FLOW_MAX.toLocaleString()}+</span>`);
+    return { stops, ticks };
+  }
   // A difference in trips a day: grey to blue for more, to red for fewer, on a log scale.
   function diffStyle(v) {
     const t = logPos(v, DIFF_MAX);
@@ -1018,14 +1048,7 @@ h2.later { margin-top: 18px; }
       document.getElementById("flowNote").textContent =
         "Trips a day on the safest routes minus the shortest. Blue is where routing for safety sends riders; red is what it takes them off.";
     } else {
-      for (let i = 0; i <= 20; i++) {
-        const c = mix(palette.flowLo, palette.flowHi, i / 20);
-        stops.push(`${css(c)} ${(i / 20 * 100).toFixed(1)}%`);
-      }
-      for (const v of [1, 10, 100, 1000]) {
-        ticks.push(`<span class="c" style="left:${(logPos(v, FLOW_MAX) * 100).toFixed(1)}%">${v.toLocaleString()}</span>`);
-      }
-      ticks.push(`<span style="left:100%">${FLOW_MAX.toLocaleString()}+</span>`);
+      ({ stops, ticks } = flowRamp());
       document.getElementById("flowEnds").innerHTML = "";
       document.getElementById("flowNote").textContent = flowView === "safest"
         ? `Every ${data.flow.year} Citi Bike trip between two stations, on its cheapest route under config.py's costs. Moving the cost knobs does not re-route them.`
@@ -1197,6 +1220,7 @@ h2.later { margin-top: 18px; }
     corridors: "Where new protected lanes would save Citi Bike riders the most stress, scored as whole corridors rather than block by block.",
     riders: "The same Citi Bike trips routed again with the plan built. Colour and width are the change in trips a day along each street, each direction.",
     stations: "Each Citi Bike station by how much less stress its trips would cost with the plan built.",
+    split: "The same Citi Bike trips today and with the plan built, side by side. Colour and width are trips a day along each street, each direction.",
   };
   const pctText = (v, digits = 0) => (v * 100).toFixed(digits) + "%";
   const distText = (m) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`);
@@ -1206,11 +1230,19 @@ h2.later { margin-top: 18px; }
   // Riders: the change in trips a day. Stations: the plan's new lane, thin,
   // behind the dots. An example trip: nothing but its own routes.
   function paintEffect() {
-    const m = edges.length, shift = planView === "riders" && selectedExample === null;
+    const m = edges.length, riders = planView === "riders" && selectedExample === null;
+    const split = riders && compare === "split", shift = riders && !split;
     const lanes = planView === "stations";
+    if (split && (!planColors || planWidths.length !== m)) { planColors = new Uint8Array(4 * m); planWidths = new Float32Array(m); }
     for (let i = 0; i < m; i++) {
       const e = edges[i];
-      if (shift) {
+      if (split) {
+        const [rgb, w] = flowStyle(data[e.d === 0 ? "tf" : "tr"][e.s] / 365);
+        setRgb(i, rgb, w);
+        const [prgb, pw] = flowStyle(data[e.d === 0 ? "pf" : "pr"][e.s] / 365);
+        planColors[4 * i] = prgb[0]; planColors[4 * i + 1] = prgb[1]; planColors[4 * i + 2] = prgb[2]; planColors[4 * i + 3] = 255;
+        planWidths[i] = pw;
+      } else if (shift) {
         const v = (data[e.d === 0 ? "pf" : "pr"][e.s] - data[e.d === 0 ? "tf" : "tr"][e.s]) / 365;
         if (Math.abs(v) < SHIFT_FAINT) setRgb(i, palette.faint, 0.6);
         else { const [rgb, w] = diffStyle(v); setRgb(i, rgb, w); }
@@ -1225,9 +1257,13 @@ h2.later { margin-top: 18px; }
     return mix(palette.flowLo, palette.flowHi, 0.12 + 0.88 * Math.min(v / SAVED_MAX, 1));
   }
   function drawEffectLegends() {
-    const d = diffRamp(SHIFT_FAINT, [-1000, -SHIFT_FAINT, SHIFT_FAINT, 1000]);
+    const split = compare === "split";
+    const d = split ? flowRamp() : diffRamp(SHIFT_FAINT, [-1000, -SHIFT_FAINT, SHIFT_FAINT, 1000]);
     document.getElementById("shiftRamp").style.background = `linear-gradient(to right, ${d.stops.join(", ")})`;
     document.getElementById("shiftTicks").innerHTML = d.ticks.join("");
+    document.getElementById("shiftEnds").hidden = split;
+    document.getElementById("shift-h").textContent = split ? "Trips a day, each direction" : "Change in trips a day, each direction";
+    document.getElementById("shiftNote").textContent = shiftNotes[compare] || "";
     const stops = [], ticks = [];
     for (let i = 0; i <= 20; i++) stops.push(`${css(stationColor(SAVED_MAX * Math.max(i, 0.01) / 20))} ${i * 5}%`);
     for (const v of [0, 0.05, 0.1, 0.15, 0.2]) {
@@ -1265,6 +1301,7 @@ h2.later { margin-top: 18px; }
   }
 
   function setPlanView(v) {
+    compare = "change"; syncCompare(); closeSplit();
     planView = v; selectedExample = null; route = NO_ROUTE; selectedStation = null;
     deselect(); syncPlanView(); recompute();
   }
@@ -1273,7 +1310,7 @@ h2.later { margin-top: 18px; }
     document.getElementById("planViews").hidden = !on || !hasEffect();
     document.querySelectorAll("[data-pview]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.pview === planView)));
     document.querySelectorAll("[data-pv]").forEach((el) => { el.hidden = !on || !el.dataset.pv.split(" ").includes(planView); });
-    if (on) document.querySelector(".lede").textContent = PLAN_LEDE[planView];
+    if (on) document.querySelector(".lede").textContent = PLAN_LEDE[planView === "riders" && compare === "split" ? "split" : planView];
   }
   // Escape and the cards' × close an example trip or a station too.
   function closeEffect() {
@@ -1306,6 +1343,7 @@ h2.later { margin-top: 18px; }
   }
 
   function showExample(i) {
+    if (compare !== "change") { compare = "change"; syncCompare(); closeSplit(); }
     const x = data.plan.effect.examples[i];
     const pick = (codes) => codes.map((code) => edgeOf[code]).filter((j) => j >= 0).map((j) => edges[j]);
     const plan = pick(x.pp);
@@ -1381,16 +1419,128 @@ h2.later { margin-top: 18px; }
     li.querySelector("button").onclick = onclick;
     return li;
   }
+  // The examples come sorted by the share of stress saved; a trip much like
+  // one above it is left off the list, though its corridor's card still links it.
   function renderExamples() {
     const ex = data.plan.effect.examples, list = document.getElementById("exList");
+    const listed = ex.map((x, i) => i).filter((i) => ex[i].listed !== false);
     list.innerHTML = "";
-    (exAll ? ex : ex.slice(0, EX_SHOWN)).forEach((x, i) => {
-      list.appendChild(rankedItem(i + 1, `${x.from} → ${x.to}`, `for the ${viaText(x)}`,
+    (exAll ? listed : listed.slice(0, EX_SHOWN)).forEach((i, pos) => {
+      const x = ex[i];
+      list.appendChild(rankedItem(pos + 1, `${x.from} → ${x.to}`, `for the ${viaText(x)}`,
         `−${pctText(1 - x.plan.cost / x.today.cost)}`, `${x.trips_day.toLocaleString()}/day`, () => showExample(i)));
     });
     const more = document.getElementById("exMore");
-    more.hidden = ex.length <= EX_SHOWN;
-    more.textContent = exAll ? `Show the first ${EX_SHOWN}` : `Show all ${ex.length.toLocaleString()}`;
+    more.hidden = listed.length <= EX_SHOWN;
+    more.textContent = exAll ? `Show the first ${EX_SHOWN}` : `Show all ${listed.length.toLocaleString()}`;
+    document.getElementById("exNote").textContent =
+      `One real trip for each corridor, among the station pairs that gain most, sorted by the share of their stress saved, with trips a day. ` +
+      `${(ex.length - listed.length).toLocaleString()} of the ${ex.length.toLocaleString()} are left off for sharing most of their streets with one above. ` +
+      `Select one to see both routes.`;
+  }
+
+  // ---------- side by side ----------
+  // The main map shrinks to the left (or top) half and shows today's trips;
+  // a second deck.gl pane beside it shows the same trips with the plan built.
+  // Each follows the other's pan and zoom.
+  function setCompare(v) {
+    if (v === compare) return;
+    compare = v; syncCompare();
+    selectedExample = null; route = NO_ROUTE;
+    deselect();
+    if (v === "split") openSplit(); else closeSplit();
+    syncPlanView(); recompute();
+  }
+  function syncCompare() {
+    document.querySelectorAll("[data-compare]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.compare === compare)));
+  }
+  const VIEW_KEYS = ["longitude", "latitude", "zoom", "pitch", "bearing"];
+  function pickView(vs) {
+    const out = { minZoom: 9, maxZoom: 19 };
+    for (const key of VIEW_KEYS) if (vs[key] !== undefined) out[key] = vs[key];
+    return out;
+  }
+  function openSplit() {
+    if (planDeck) return;
+    const map = document.getElementById("map"), stacked = map.clientWidth < SPLIT_STACK_PX;
+    const v = deckgl.getViewports()[0];
+    const view = pickView({ longitude: v.longitude, latitude: v.latitude, zoom: v.zoom });
+    map.classList.add("split"); map.classList.toggle("stacked", stacked);
+    deckgl.setProps(stacked ? { height: "50%" } : { width: "50%" });
+    const label = document.createElement("span");
+    label.className = "pane-label"; label.id = "todayLabel"; label.textContent = "Today";
+    map.appendChild(label);
+    const pane = document.createElement("div");
+    pane.id = "planPane"; pane.innerHTML = '<span class="pane-label">With the plan</span>';
+    map.appendChild(pane);
+    paneExt = new deck.PathStyleExtension({ offset: true });
+    planDeck = new deck.Deck({
+      parent: pane, views: new deck.MapView({ repeat: false }), initialViewState: view, controller: true,
+      pickingRadius: COARSE ? 16 : 6,
+      onViewStateChange: ({ viewState }) => { syncMain(viewState); },
+      getCursor: ({ isHovering }) => (isHovering ? "pointer" : "grab"),
+      getTooltip: (info) => withTrips(tooltip(info), info, "p"),
+      onClick: (info) => { if (info.object) select(info.object.e || info.object); },
+      layers: [],
+    });
+  }
+  function closeSplit() {
+    if (!planDeck) return;
+    planDeck.finalize(); planDeck = null;
+    document.getElementById("planPane").remove();
+    document.getElementById("todayLabel").remove();
+    document.getElementById("map").classList.remove("split", "stacked");
+    deckgl.setProps({ width: "100%", height: "100%" });
+  }
+  // Main map moved: the pane follows. Pane moved: the main map follows, with
+  // what its own onViewStateChange would have done.
+  function syncPane(vs) { if (planDeck) planDeck.setProps({ initialViewState: pickView(vs) }); }
+  function syncMain(vs) {
+    deckgl.setProps({ initialViewState: pickView(vs) });
+    const zoomed = setZoom(vs.zoom), culled = cullArrows(vs);
+    if (zoomed || culled) render();
+  }
+  // The pane's streets in the plan's colours, with arrowheads from ARROW_ZOOM
+  // and the selected direction lit, as on the main map.
+  function paneLayers() {
+    const widthOf = (i) => Math.max(planWidths[i] * widthScale, MIN_PX);
+    const out = [new deck.PathLayer({
+      id: "pane-edges", data: edges, getPath: (e) => e.path, positionFormat: "XY",
+      getColor: (e, { index }) => planColors.subarray(4 * index, 4 * index + 4), getWidth: (e, { index }) => planWidths[index],
+      widthUnits: "pixels", widthScale, widthMinPixels: MIN_PX, getOffset: offset, extensions: [paneExt],
+      capRounded: false, jointRounded: false, pickable: true, autoHighlight: true, highlightColor: LIT.concat(255),
+      updateTriggers: { getColor: version, getWidth: version },
+    })];
+    if (zoomStep >= ARROW_ZOOM) {
+      out.push(new deck.IconLayer({
+        id: "pane-arrows", data: arrowData, iconAtlas: atlas, iconMapping: ARROW_ICONS, getIcon: () => "arrow",
+        getPosition: (e) => [arrowPos[2 * e.i], arrowPos[2 * e.i + 1]], getAngle: (e) => arrowAngle[e.i],
+        getSize: (e) => { const px = widthOf(e.i); return px >= KNOCKOUT_PX ? Math.min(1.25 * px, 24) : Math.min(Math.max(3.5 * px, 9), 20); },
+        sizeUnits: "pixels", getPixelOffset: (e) => sideOffset(e.i, centreOf(planWidths[e.i])),
+        getColor: (e) => (widthOf(e.i) >= KNOCKOUT_PX ? palette.plane.concat(255) : planColors.subarray(4 * e.i, 4 * e.i + 4)),
+        billboard: false, pickable: false,
+        updateTriggers: { getSize: [version, widthScale], getPixelOffset: [version, widthScale, offset], getColor: [version, widthScale] },
+      }));
+    }
+    if (selected) {
+      const lit = widthOf(selected.i) + 2;
+      out.push(new deck.PathLayer({
+        id: "pane-selected", data: [selected], getPath: (e) => e.path, positionFormat: "XY", getColor: LIT,
+        getWidth: lit, widthUnits: "pixels", getOffset: centreOf(planWidths[selected.i]) / lit, extensions: [paneExt],
+        capRounded: true, jointRounded: true, pickable: false,
+      }));
+    }
+    return out;
+  }
+  // Hover tooltips name the street; side by side they add its trips a day there.
+  function withTrips(tip, info, which) {
+    if (!tip || !info.object || !planDeck) return tip;
+    const e = info.object.e || info.object;
+    return { ...tip, html: `${tip.html} <span style="color:var(--ink-2)">· ${perDay(e, which).toLocaleString()} trips a day</span>` };
+  }
+  function mainTip(info) {
+    if (info.layer && info.layer.id === "stations" && info.object) return stationTip(info.object);
+    return withTrips(tooltip(info), info, "t");
   }
 
   function buildEffect(eff) {
@@ -1421,10 +1571,14 @@ h2.later { margin-top: 18px; }
         moved += v; if (Math.abs(p[s] - t[s]) / 365 < SHIFT_FAINT) small += v;
       }
     }
-    document.getElementById("shiftNote").textContent =
-      `Trips a day with the plan built minus today. Blue is where riders would move to, red the streets they would leave. ` +
-      `A change of under ${SHIFT_FAINT} a day is left faint: ${pctText(small / moved)} of the riding that moves. ` +
-      `${pctText(eff.on_new)} of all trip-km would ride the new lane.`;
+    shiftNotes = {
+      change: `Trips a day with the plan built minus today. Blue is where riders would move to, red the streets they would leave. ` +
+        `A change of under ${SHIFT_FAINT} a day is left faint: ${pctText(small / moved)} of the riding that moves. ` +
+        `${pctText(eff.on_new)} of all trip-km would ride the new lane.`,
+      split: `Every trip on its safest route: today on the left, with the plan built on the right (today on top on a narrow screen). ` +
+        `The same trips, so riding one map gains, the other loses. Pan or zoom either; both follow.`,
+    };
+    document.querySelectorAll("[data-compare]").forEach((b) => { b.onclick = () => setCompare(b.dataset.compare); });
 
     eff.examples.forEach((x, i) => x.corridors.forEach((ci) => { if (!exampleOf.has(ci)) exampleOf.set(ci, i); }));
     renderExamples();
@@ -1496,16 +1650,17 @@ h2.later { margin-top: 18px; }
       .replace(/(?!^)\b(Of|The|And)\b/g, (w) => w.toLowerCase());
   }
   function flyTo([w, s, e, n]) {
-    const el = document.getElementById("map");
-    const vp = new deck.WebMercatorViewport({ width: el.clientWidth, height: el.clientHeight });
-    const fit = vp.fitBounds([[w, s], [e, n]], { padding: Math.min(60, el.clientWidth / 6) });
+    const el = document.getElementById("map"), stacked = el.classList.contains("stacked");
+    const width = el.clientWidth / (planDeck && !stacked ? 2 : 1), height = el.clientHeight / (planDeck && stacked ? 2 : 1);
+    const vp = new deck.WebMercatorViewport({ width, height });
+    const fit = vp.fitBounds([[w, s], [e, n]], { padding: Math.min(60, width / 6) });
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    deckgl.setProps({
-      initialViewState: {
-        longitude: fit.longitude, latitude: fit.latitude, zoom: Math.min(fit.zoom, 16), minZoom: 9, maxZoom: 19,
-        transitionDuration: reduce ? 0 : 900, transitionInterpolator: new deck.FlyToInterpolator(),
-      },
-    });
+    const target = {
+      longitude: fit.longitude, latitude: fit.latitude, zoom: Math.min(fit.zoom, 16), minZoom: 9, maxZoom: 19,
+      transitionDuration: reduce ? 0 : 900, transitionInterpolator: new deck.FlyToInterpolator(),
+    };
+    deckgl.setProps({ initialViewState: target });
+    if (planDeck) planDeck.setProps({ initialViewState: target });  // side by side, both panes fly together
     if (window.matchMedia("(max-width: 720px)").matches) el.scrollIntoView({ behavior: reduce ? "auto" : "smooth" });
   }
   function setMode(next) {
@@ -1523,6 +1678,7 @@ h2.later { margin-top: 18px; }
     };
     document.querySelector(".lede").textContent = lede[mode];
     selectedExample = null; route = NO_ROUTE; selectedStation = null; syncPlanView();
+    compare = "change"; syncCompare(); closeSplit();
     document.getElementById("card").hidden = true; selected = null; selectedCorridor = null;
     recompute();
   }
@@ -1616,11 +1772,12 @@ h2.later { margin-top: 18px; }
       controller: true,
       pickingRadius: COARSE ? 16 : 6,  // a street within this many pixels of the pointer counts as hit
       onViewStateChange: ({ viewState }) => {
+        syncPane(viewState);
         const zoomed = setZoom(viewState.zoom), culled = cullArrows(viewState);
         if (zoomed || culled) render();
       },
       getCursor: ({ isHovering }) => (isHovering ? "pointer" : "grab"),
-      getTooltip: (info) => (info.layer && info.layer.id === "stations" && info.object ? stationTip(info.object) : tooltip(info)),
+      getTooltip: mainTip,
       onClick: (info) => {
         if (!info.object) return;
         if (info.layer && info.layer.id === "stations") showStation(info.object);

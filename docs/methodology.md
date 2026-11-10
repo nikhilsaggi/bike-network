@@ -492,7 +492,11 @@ Each corridor gets one example trip: among the 20,000 station pairs that gain
 the most (trips times stress saved), the one scoring highest on that gain
 times the share of the corridor's new lane its new route rides. 214 trips
 cover 263 of the 269 corridors; a trip can be the example for several. The
-map draws each one's route today and with the plan.
+map draws each one's route today and with the plan. Its list sorts them by
+the share of their stress saved and leaves out a trip when more than 30% of
+the shorter one's streets, either way and on either route, are shared with
+one above it: neighbouring corridors on one avenue often pick much the same
+trip. That lists 105 of the 214.
 
 ### Limits
 

@@ -141,3 +141,6 @@ SAME_ROUTE_M = 1.0
 # Example trips are drawn from this many station pairs that gain the most
 # (trips times stress saved); enough to give nearly every corridor one.
 EXAMPLE_CANDIDATES = 20000
+# Two example trips are alike when they share more than this share of the
+# shorter one's streets; the list shows the one that saves more.
+EXAMPLE_OVERLAP = 0.3

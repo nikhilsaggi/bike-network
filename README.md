@@ -99,9 +99,11 @@ pair's route), `plan_stations.parquet` (each station's trips and the share
 of their stress saved), `plan_examples.parquet` (one real trip per corridor,
 both routes) and `plan_effect.json` (the totals). The map's New corridors
 mode then has two more views: Where riders go (trips a day with the plan
-minus today, the facility mix of the trip-km, the streets riders move to
-and leave, and the example trips drawn both ways) and Who gains (each
-station by the share of its trips' stress saved). The trips are held fixed:
+minus today, or today's map and the plan's side by side; the facility mix
+of the trip-km; the streets riders move to and leave; and the example trips
+drawn both ways, sorted by the share of stress saved, leaving out any that
+mostly repeats one above it) and Who gains (each station by the share of
+its trips' stress saved). The trips are held fixed:
 the same riders between the same stations, so the views show where they
 would ride, not how many more would.
 

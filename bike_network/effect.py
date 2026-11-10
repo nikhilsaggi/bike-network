@@ -292,6 +292,47 @@ def examples(
     return pd.DataFrame(rows)
 
 
+def distinct(
+    examples: pd.DataFrame, edges: pd.DataFrame, overlap: float | None = None
+) -> pd.DataFrame:
+    """Sort example trips by the share of their stress saved, and mark the ones to list.
+
+    Neighbouring corridors often pick much the same trip, sometimes the
+    other way. Two trips are alike when the streets they share, in either
+    direction and on either route, make up more than ``overlap`` of the
+    shorter one's. Going down the sorted list, ``listed`` marks each trip
+    unlike every one listed before it. Every trip stays, so each corridor
+    keeps its own.
+    """
+    overlap = config.EXAMPLE_OVERLAP if overlap is None else overlap
+    if examples.empty:
+        return examples.assign(listed=pd.Series(dtype=bool))
+    saved = 1 - examples["cost_plan"] / examples["cost_today"]
+    out = (
+        examples.assign(saved_share=saved)
+        .sort_values(["saved_share", "trips"], ascending=False, kind="stable")
+        .reset_index(drop=True)
+    )
+    sid = edges["segment_id"].to_numpy()
+    length = edges.drop_duplicates("segment_id").set_index("segment_id")["length_m"]
+    streets = [
+        set(sid[np.concatenate([np.asarray(t, dtype=int), np.asarray(p, dtype=int)])])
+        for t, p in zip(out["today_edges"], out["plan_edges"], strict=True)
+    ]
+    total = [float(length.reindex(list(s)).sum()) for s in streets]
+    listed: list[int] = []
+    for i, s in enumerate(streets):
+        alike = any(
+            float(length.reindex(list(s & streets[j])).sum()) > overlap * min(total[i], total[j])
+            for j in listed
+        )
+        if not alike:
+            listed.append(i)
+    out["listed"] = False
+    out.loc[listed, "listed"] = True
+    return out
+
+
 def place_names(seg: pd.DataFrame) -> pd.Series:
     """Name every LION node by the two shortest street names meeting there: ``5 Ave & W 49 St``."""
 

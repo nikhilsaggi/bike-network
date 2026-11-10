@@ -513,11 +513,13 @@ def run_effect() -> None:
     new_m = np.zeros(len(edges))
     new_m[new_rows] = edges["length_m"].to_numpy()[new_rows]
     start = time.time()
-    ex = effect.examples(Graph.from_edges(edges), graph_plan, pairs, corridor, new_m)
+    ex = effect.distinct(
+        effect.examples(Graph.from_edges(edges), graph_plan, pairs, corridor, new_m), edges
+    )
     covered = {c for cs in ex["corridors"] for c in cs} if len(ex) else set()
     print(
-        f"  {len(ex)} example trips for {len(covered)} of {blocks['corridor'].nunique()} corridors "
-        f"({time.time() - start:.0f}s)"
+        f"  {len(ex)} example trips for {len(covered)} of {blocks['corridor'].nunique()} corridors, "
+        f"{int(ex['listed'].sum()) if len(ex) else 0} unlike one another ({time.time() - start:.0f}s)"
     )
 
     out = plan[["segment_id", "dir", "u", "v", "street", "facility", "mode", "length_m"]].copy()

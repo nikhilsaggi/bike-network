@@ -310,6 +310,7 @@ def effect_layer(
                 "trips_day": round(r.trips / 365) if r.trips >= 3650 else round(r.trips / 365, 1),
                 "corridors": [int(c) for c in r.corridors],
                 "new_m": round(r.new_m),
+                "listed": bool(getattr(r, "listed", True)),
                 **legs,
                 "tp": code[today].astype(int).tolist(),
                 "pp": code[plan].astype(int).tolist(),
