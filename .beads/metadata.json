@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "bike_network",
+  "project_id": "92f3fb62-1675-420d-bec2-aae019a70bc8"
+}
