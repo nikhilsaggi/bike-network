@@ -23,6 +23,7 @@ import shapely
 
 from . import config
 from .corridors import KINDS
+from .effect import MIX, place_names
 
 if TYPE_CHECKING:
     import geopandas as gpd
@@ -220,6 +221,119 @@ def plan_layer(seg: gpd.GeoDataFrame, rank: pd.Series, plan: dict[str, Any]) -> 
     return {**plan["summary"], "kinds": list(KINDS), "corridors": rows, "blocks": cells}
 
 
+SHIFTS_SHOWN = 6
+SHIFT_MIN_DAY = 10  # trips a day of change for a block to count toward a street's frame
+
+
+def _bbox(geom: gpd.GeoSeries, ids: np.ndarray) -> list[float]:
+    w, s, e, n = geom.reindex(pd.unique(ids)).total_bounds
+    return [round(w, 5), round(s, 5), round(e, 5), round(n, 5)]
+
+
+def street_shifts(
+    seg: gpd.GeoDataFrame, today: pd.DataFrame, plan: pd.DataFrame
+) -> dict[str, list[dict[str, Any]]]:
+    """Find the streets the plan draws the most riding onto, and those it takes the most off.
+
+    ``today`` is ``flows.parquet`` and ``plan`` the ``effect`` command's
+    ``plan_flows.parquet``, row for row. Each street (a name in a borough)
+    nets its blocks' change in trip-km a day; its ``bbox`` frames the blocks
+    that changed by at least ``SHIFT_MIN_DAY`` trips a day that way.
+    """
+    delta = (plan["trips"].to_numpy() - today["trips"].to_numpy()) / 365
+    rows = pd.DataFrame(
+        {
+            "segment_id": today["segment_id"].to_numpy(),
+            "street": today["street"].to_numpy(),
+            "boro": today["boro"].to_numpy(),
+            "delta": delta,
+            "km_day": delta * today["length_m"].to_numpy() / 1000,
+        }
+    )
+    net = rows.groupby(["street", "boro"])["km_day"].sum()
+    geom = seg.drop_duplicates("segment_id").set_index("segment_id").geometry.to_crs(4326)
+    out = {}
+    for side, top in (("join", net.nlargest(SHIFTS_SHOWN)), ("leave", net.nsmallest(SHIFTS_SHOWN))):
+        sign = 1 if side == "join" else -1
+        items = []
+        for (street, boro), km in top.items():
+            moved = rows[
+                (rows["street"] == street)
+                & (rows["boro"] == boro)
+                & (sign * rows["delta"] >= SHIFT_MIN_DAY)
+            ]
+            items.append(
+                {
+                    "street": street,
+                    "boro": BORO.get(int(boro), ""),
+                    "km_day": round(float(km)),
+                    "bbox": _bbox(geom, moved["segment_id"].to_numpy()),
+                }
+            )
+        out[side] = items
+    return out
+
+
+def effect_layer(
+    seg: gpd.GeoDataFrame,
+    rank: pd.Series,
+    edges: pd.DataFrame,
+    flows: pd.DataFrame,
+    effect: dict[str, Any],
+) -> dict[str, Any]:
+    """Shape the ``effect`` command's output for the viewer's views of what the plan changes.
+
+    ``effect`` holds its ``summary`` (``plan_effect.json``), ``flows``,
+    ``examples`` and ``stations`` (its parquet files). ``edges`` is
+    ``edges.parquet``, which the examples' routes index by row; ``rank``
+    maps segment id to the payload's segment order. A route is a list of
+    ``2 * segment + direction``. Stations are columns, one entry per network
+    node with a station.
+    """
+    names = place_names(seg).to_dict()
+    code = 2 * rank.reindex(edges["segment_id"]).to_numpy() + (edges["dir"] == "rev").to_numpy()
+    geom = seg.drop_duplicates("segment_id").set_index("segment_id").geometry.to_crs(4326)
+    sids = edges["segment_id"].to_numpy()
+    trips = []
+    for r in effect["examples"].itertuples():
+        legs = {}
+        for when in ("today", "plan"):
+            legs[when] = {
+                "m": {k: round(getattr(r, f"{when}_{k}_m")) for k in MIX},
+                "cost": round(getattr(r, f"cost_{when}")),
+            }
+        today, plan = np.asarray(r.today_edges, dtype=int), np.asarray(r.plan_edges, dtype=int)
+        trips.append(
+            {
+                "from": names.get(r.o, "?"),
+                "to": names.get(r.d, "?"),
+                "trips_day": round(r.trips / 365) if r.trips >= 3650 else round(r.trips / 365, 1),
+                "corridors": [int(c) for c in r.corridors],
+                "new_m": round(r.new_m),
+                **legs,
+                "tp": code[today].astype(int).tolist(),
+                "pp": code[plan].astype(int).tolist(),
+                "bbox": _bbox(geom, sids[np.concatenate([today, plan])]),
+            }
+        )
+    st = effect["stations"]
+    st = st[st["trips"] >= 365]  # a trip a day, at either end
+    return {
+        **effect["summary"],
+        "shifts": street_shifts(seg, flows, effect["flows"]),
+        "examples": trips,
+        "stations": {
+            "lng": st["lng"].round(5).tolist(),
+            "lat": st["lat"].round(5).tolist(),
+            "trips_day": (st["trips"] / 365).round().astype(int).tolist(),
+            "saved": st["saved_share"].round(4).tolist(),
+            "helped": st["helped_share"].round(3).tolist(),
+            "n": st["stations"].astype(int).tolist(),
+            "name": [names.get(n, "?") for n in st["node"]],
+        },
+    }
+
+
 def export(
     seg: gpd.GeoDataFrame,
     fac: pd.DataFrame,
@@ -227,6 +341,7 @@ def export(
     counted: pd.DataFrame | None = None,
     flows: pd.DataFrame | None = None,
     plan: dict[str, Any] | None = None,
+    effect: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the viewer's JSON payload.
 
@@ -234,7 +349,10 @@ def export(
     volumes where they exist, for display. ``flows`` (the ``assign``
     command's ``flows.parquet``) adds routed trips a year per direction under
     both routings and a summary for the Trips view. ``plan`` adds the
-    ``corridors`` command's build-out (see :func:`plan_layer`).
+    ``corridors`` command's build-out (see :func:`plan_layer`), and
+    ``effect``, with ``flows`` and ``plan``, what it changes for riders
+    (:func:`effect_layer`): trips a year per direction with it built, as
+    ``pf``/``pr``.
     """
     seg = seg[seg["segment_id"].isin(edges["segment_id"])].reset_index(drop=True)
     attrs = pack_attributes(seg, fac)
@@ -284,7 +402,12 @@ def export(
     extra: dict[str, Any] = {}
     if plan is not None:
         pos = pd.Series(rank, index=seg["segment_id"])
-        extra["plan"] = plan_layer(seg, pos[~pos.index.duplicated()], plan)
+        pos = pos[~pos.index.duplicated()]
+        extra["plan"] = plan_layer(seg, pos, plan)
+        if effect is not None and flows is not None:
+            pf, pr = _per_direction(seg, effect["flows"], "trips")
+            extra["pf"], extra["pr"] = pf[order].tolist(), pr[order].tolist()
+            extra["plan"]["effect"] = effect_layer(seg, pos, edges, flows, effect)
     return {
         **trips,
         **extra,

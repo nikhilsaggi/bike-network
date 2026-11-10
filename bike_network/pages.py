@@ -34,6 +34,10 @@ INPUTS = (
     "corridors.json",
     "corridors.parquet",
     "corridor_edges.parquet",
+    "plan_effect.json",
+    "plan_flows.parquet",
+    "plan_examples.parquet",
+    "plan_stations.parquet",
 )
 
 

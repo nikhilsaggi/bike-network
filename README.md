@@ -90,6 +90,21 @@ plan's totals), and `viz` then adds a New corridors view to the map. The
 method and what it found:
 [docs/methodology.md](docs/methodology.md#7-where-new-lanes-would-help).
 
+The plan is picked on a sample, so `corridors` ends by running
+`python -m bike_network effect` (about a minute, and runnable alone): every
+one of the year's trips routed again with the plan built, set beside
+today's routes. It writes `plan_flows.parquet` (trips a year on each
+directed edge, as `flows.parquet`), `plan_routes.parquet` (each station
+pair's route), `plan_stations.parquet` (each station's trips and the share
+of their stress saved), `plan_examples.parquet` (one real trip per corridor,
+both routes) and `plan_effect.json` (the totals). The map's New corridors
+mode then has two more views: Where riders go (trips a day with the plan
+minus today, the facility mix of the trip-km, the streets riders move to
+and leave, and the example trips drawn both ways) and Who gains (each
+station by the share of its trips' stress saved). The trips are held fixed:
+the same riders between the same stations, so the views show where they
+would ride, not how many more would.
+
 ## Cost model
 
 Each directed edge costs `length_m * factor`. A bike either rides the edge or

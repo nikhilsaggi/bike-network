@@ -188,6 +188,12 @@ def assign(graph: Graph, od: pd.DataFrame, batch: int = BATCH, workers: int = 1)
     return Assignment(edge_trips=edge_trips, od=routes)
 
 
+def trip_km_by_facility(edges: pd.DataFrame, trips: np.ndarray) -> pd.Series:
+    """Trip-km on each kind of facility, with walked edges as their own kind."""
+    kind = np.where(edges["mode"] == "walk", "walked", edges["facility"])
+    return pd.Series(trips * edges["length_m"].to_numpy() / 1000).groupby(kind).sum()
+
+
 def baseline_edges(edges: pd.DataFrame) -> pd.DataFrame:
     """Return the same edges costed by distance alone: riding at 1x wherever it is legal.
 

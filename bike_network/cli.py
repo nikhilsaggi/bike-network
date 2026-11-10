@@ -18,6 +18,7 @@ from . import (
     config,
     corridors,
     demand,
+    effect,
     lanes,
     lion,
     pages,
@@ -89,7 +90,7 @@ def build_viz() -> None:
     import geopandas as gpd  # noqa: PLC0415 -- only this command needs geometry
 
     seg = gpd.read_parquet(config.BUILD_DIR / "segments.parquet")
-    edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet", columns=["segment_id"])
+    edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet", columns=["segment_id", "dir"])
     fac = pd.read_parquet(config.BUILD_DIR / "facilities.parquet")
     counted = pd.read_parquet(config.BUILD_DIR / "traffic.parquet")
     flows_path = config.BUILD_DIR / "flows.parquet"
@@ -105,7 +106,15 @@ def build_viz() -> None:
             "blocks": pd.read_parquet(config.BUILD_DIR / "corridor_edges.parquet"),
             "summary": json.loads((config.BUILD_DIR / "corridors.json").read_text()),
         }
-    payload = viz.export(seg, fac, edges, counted, flows, plan)
+    effect = None
+    if plan is not None and (config.BUILD_DIR / "plan_effect.json").exists():
+        effect = {
+            "summary": json.loads((config.BUILD_DIR / "plan_effect.json").read_text()),
+            "flows": pd.read_parquet(config.BUILD_DIR / "plan_flows.parquet"),
+            "examples": pd.read_parquet(config.BUILD_DIR / "plan_examples.parquet"),
+            "stations": pd.read_parquet(config.BUILD_DIR / "plan_stations.parquet"),
+        }
+    payload = viz.export(seg, fac, edges, counted, flows, plan, effect)
     viz.write(payload)
     print(f"Wrote {config.BUILD_DIR / 'viz'}: {payload['n']:,} segments")
 
@@ -130,8 +139,7 @@ def evaluate_traffic() -> None:
 
 
 def _trip_km_by_facility(edges: pd.DataFrame, trips: np.ndarray) -> pd.Series:
-    kind = np.where(edges["mode"] == "walk", "walked", edges["facility"])
-    km = pd.Series(trips * edges["length_m"].to_numpy() / 1000).groupby(kind).sum()
+    km = assignment.trip_km_by_facility(edges, trips)
     return km / km.sum()
 
 
@@ -444,6 +452,86 @@ def run_corridors(budget_km: float, seed: int = 0) -> None:
     print(
         f"Wrote {config.BUILD_DIR / 'corridors.parquet'}, corridor_edges.parquet and corridors.json"
     )
+    run_effect()
+
+
+def run_effect() -> None:
+    """Route every trip again with the corridor plan built, and compare with today's routes."""
+    b = config.BUILD_DIR
+    edges = pd.read_parquet(b / "edges.parquet")
+    flows = pd.read_parquet(b / "flows.parquet")
+    if (
+        len(flows) != len(edges)
+        or not (flows["segment_id"].to_numpy() == edges["segment_id"].to_numpy()).all()
+    ):
+        msg = "flows.parquet is not from this edges.parquet: run `assign` first."
+        raise SystemExit(msg)
+    routes = pd.read_parquet(b / "routes.parquet")
+    blocks = pd.read_parquet(b / "corridor_edges.parquet")
+    stations = pd.read_parquet(b / "stations.parquet")
+
+    plan, new_rows = effect.plan_edges(edges, blocks)
+    print(
+        f"Routing {routes['trips'].sum():,.0f} trips with the plan's "
+        f"{edges['length_m'].to_numpy()[new_rows].sum() / 1000:.1f} km of new lane built..."
+    )
+    graph_plan = Graph.from_edges(plan)
+    res = assignment.assign(graph_plan, routes[["o", "d", "trips"]], workers=WORKERS)
+    pairs = effect.compare(routes, res.od)
+    summary = effect.summarize(
+        pairs,
+        edges,
+        plan,
+        flows["trips"].to_numpy(),
+        res.edge_trips,
+        flows["trips_shortest"].to_numpy(),
+        new_rows,
+    )
+    pct = lambda v: f"{v:.1%}"  # noqa: E731
+    print(
+        f"  Saves {pct(summary['saved_share'])} of the stress on every trip; "
+        f"{summary['helped_day']:,} trips a day ({pct(summary['helped_share'])}) gain, "
+        f"{pct(summary['same_route_share'])} of them on the route they ride today "
+        f"({pct(summary['same_route_saved'])} of the saving)"
+    )
+    d, c, k = summary["detour"], summary["cost_per_km"], summary["walked_km"]
+    print(
+        f"  Trip-km over the shortest routes: {pct(d['today'])} today, {pct(d['plan'])} with the plan; "
+        f"cost per km {c['today']:.3f} -> {c['plan']:.3f}; walked {k['today']:,} -> {k['plan']:,} km"
+    )
+    print("  Share of trip-km by facility, today and with the plan:")
+    for kind in effect.MIX:
+        print(
+            f"    {kind:10s} {summary['share']['today'][kind]:6.1%} {summary['share']['plan'][kind]:6.1%}"
+        )
+
+    corridor = np.full(len(edges), -1)
+    pos = pd.MultiIndex.from_frame(edges[effect.KEY]).get_indexer(
+        pd.MultiIndex.from_frame(blocks[effect.KEY])
+    )
+    corridor[pos] = blocks["corridor"].to_numpy() - 1
+    new_m = np.zeros(len(edges))
+    new_m[new_rows] = edges["length_m"].to_numpy()[new_rows]
+    start = time.time()
+    ex = effect.examples(Graph.from_edges(edges), graph_plan, pairs, corridor, new_m)
+    covered = {c for cs in ex["corridors"] for c in cs} if len(ex) else set()
+    print(
+        f"  {len(ex)} example trips for {len(covered)} of {blocks['corridor'].nunique()} corridors "
+        f"({time.time() - start:.0f}s)"
+    )
+
+    out = plan[["segment_id", "dir", "u", "v", "street", "facility", "mode", "length_m"]].copy()
+    out["trips"] = res.edge_trips
+    out["new"] = False
+    out.loc[new_rows, "new"] = True
+    out.to_parquet(b / "plan_flows.parquet")
+    res.od.to_parquet(b / "plan_routes.parquet")
+    ex.to_parquet(b / "plan_examples.parquet")
+    effect.station_gains(pairs, stations).to_parquet(b / "plan_stations.parquet")
+    (b / "plan_effect.json").write_text(json.dumps(summary, indent=1))
+    print(
+        f"Wrote plan_flows, plan_routes, plan_examples and plan_stations parquet and plan_effect.json to {b}"
+    )
 
 
 def run_publish(*, push: bool, remote: str) -> None:
@@ -494,23 +582,22 @@ def main() -> None:
         help=f"km of new protected lane (default {config.CORRIDOR_BUDGET_KM})",
     )
     cor.add_argument("--seed", type=int, default=0, help="seed for the station-pair sample")
+    sub.add_parser("effect", help="route every trip again with the corridor plan built")
     pub = sub.add_parser("publish", help="push the exported viewer to the gh-pages branch")
     pub.add_argument("--no-push", action="store_true", help="commit the branch but do not push it")
     pub.add_argument("--remote", default="origin", help="remote to push to (default origin)")
     args = parser.parse_args()
-    if args.command == "build":
-        build()
-    elif args.command == "viz":
-        build_viz()
-    elif args.command == "traffic":
-        evaluate_traffic()
-    elif args.command == "assign":
-        run_assignment()
-    elif args.command == "calibrate":
-        run_calibration({k: getattr(args, k) for k in GRID if getattr(args, k)})
-    elif args.command == "candidates":
-        run_candidates()
-    elif args.command == "corridors":
-        run_corridors(args.budget_km, args.seed)
-    elif args.command == "publish":
-        run_publish(push=not args.no_push, remote=args.remote)
+    commands = {
+        "build": build,
+        "viz": build_viz,
+        "traffic": evaluate_traffic,
+        "assign": run_assignment,
+        "calibrate": lambda: run_calibration(
+            {k: getattr(args, k) for k in GRID if getattr(args, k)}
+        ),
+        "candidates": run_candidates,
+        "corridors": lambda: run_corridors(args.budget_km, args.seed),
+        "effect": run_effect,
+        "publish": lambda: run_publish(push=not args.no_push, remote=args.remote),
+    }
+    commands[args.command]()

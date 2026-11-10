@@ -9,7 +9,7 @@ import pytest
 from conftest import dot_row, lion_row
 from shapely.geometry import MultiLineString
 
-from bike_network import config, lanes, lion, viz
+from bike_network import config, effect, lanes, lion, viz
 from bike_network.network import build_edges, direction_volumes
 
 NODE = shutil.which("node")
@@ -206,3 +206,109 @@ def test_plan_blocks_point_at_their_own_segment_and_direction():
     assert p["kinds"][0] == "contraflow"
     assert p["corridors"][0]["kinds"]["contraflow"] == 1000
     assert p["corridors"][0]["opposite"] == "separated"
+
+
+def plan_payload_inputs():
+    """A three-segment network with a one-corridor plan, as export() takes it."""
+    seg, fac = segments()
+    seg = seg.head(3).copy()
+    lines = [
+        [(980000, 200000), (981000, 200000)],
+        [(981000, 200000), (982000, 201000)],
+        [(982000, 201000), (983000, 201000)],
+    ]
+    gseg = gpd.GeoDataFrame(seg, geometry=[MultiLineString([pts]) for pts in lines], crs=2263)
+    edges = build_edges(seg, fac)
+    ids = list(seg["segment_id"])
+    corridor = {
+        "corridor": [1],
+        "street": ["STREET 2"],
+        "boro": [1],
+        "heading": ["E"],
+        "from_street": ["A"],
+        "to_street": ["B"],
+        "new_m": [1000.0],
+        "kind": ["none"],
+        **{
+            f"{k}_m": [1000.0 if k == "none" else 0.0]
+            for k in ("contraflow", "painted", "shared", "none")
+        },
+        "opposite": ["none"],
+        "gaps": [1],
+        "round": [1],
+        "trips_alone": [365.0],
+        "saved_alone": [5000.0],
+        "blocks_alone": [1000.0],
+        "saved_in_plan": [5000.0],
+    }
+    blocks = pd.DataFrame(
+        {"segment_id": [ids[1]], "dir": ["fwd"], "corridor": [1], "new": [True], "kind": ["none"]}
+    )
+    plan = {"corridors": pd.DataFrame(corridor), "blocks": blocks, "summary": {"budget_km": 80}}
+    return gseg, fac, edges, ids, plan
+
+
+def test_effect_trips_and_example_routes_land_on_their_own_direction():
+    gseg, fac, edges, ids, plan = plan_payload_inputs()
+    row = {
+        (s, d): i for i, (s, d) in enumerate(zip(edges["segment_id"], edges["dir"], strict=True))
+    }
+    today = edges[["segment_id", "dir", "street", "facility", "mode", "length_m"]].assign(
+        boro=1, trips=0.0, trips_shortest=0.0
+    )
+    after = today.copy()
+    today.loc[row[(ids[0], "fwd")], "trips"] = 365 * 40  # riders leave segment 1 fwd ...
+    after.loc[row[(ids[1], "fwd")], "trips"] = 365 * 40  # ... for the new lane on segment 2
+    mix = {f"{w}_{k}_m": 0.0 for w in ("today", "plan") for k in effect.MIX}
+    examples = pd.DataFrame(
+        [
+            {
+                "o": 1,
+                "d": 3,
+                "trips": 3650.0,
+                "corridors": [0],
+                "cost_today": 2000.0,
+                "cost_plan": 1500.0,
+                **mix,
+                "new_m": 1000.0,
+                "today_edges": [row[(ids[0], "fwd")], row[(ids[2], "rev")]],
+                "plan_edges": [row[(ids[1], "fwd")]],
+            }
+        ]
+    )
+    stations = pd.DataFrame(
+        {
+            "node": [1, 3, 4],
+            "lat": [40.7, 40.71, 40.72],
+            "lng": [-74.0, -73.99, -73.98],
+            "stations": [1, 2, 1],
+            "trips": [3650.0, 7300.0, 100.0],
+            "saved_share": [0.1, 0.2, 0.0],
+            "helped_share": [0.5, 0.6, 0.0],
+        }
+    )
+    eff = {
+        "summary": {"saved_share": 0.1},
+        "flows": after,
+        "examples": examples,
+        "stations": stations,
+    }
+    payload = viz.export(gseg, fac, edges, flows=today, plan=plan, effect=eff)
+    seg_of = {payload["names"][payload["name"][s]]: s for s in range(payload["n"])}
+    s1, s2, s3 = (seg_of[f"STREET {i}"] for i in (1, 2, 3))
+    assert payload["pf"][s2] == 365 * 40
+    assert payload["pf"][s1] == 0
+    assert sum(payload["pr"]) == 0
+    e = payload["plan"]["effect"]
+    assert e["saved_share"] == 0.1
+    x = e["examples"][0]
+    assert x["tp"] == [2 * s1, 2 * s3 + 1]
+    assert x["pp"] == [2 * s2]
+    assert x["trips_day"] == 10
+    assert x["from"] == "St 1"  # node 1 meets one street
+    assert e["shifts"]["join"][0]["street"] == "STREET 2"
+    assert e["shifts"]["join"][0]["km_day"] == 40
+    assert e["shifts"]["leave"][0]["street"] == "STREET 1"
+    # a station with under a trip a day is left out
+    assert e["stations"]["n"] == [1, 2]
+    assert e["stations"]["name"][1] == "St 2 & St 3"

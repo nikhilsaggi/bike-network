@@ -132,3 +132,12 @@ CORRIDOR_CANDIDATES = 2000  # best stretches checked for shared riders each roun
 # round waits for the next round's rescore, which sees the first one built.
 CORRIDOR_MAX_SHARED = 0.1
 MANHATTAN_GRID_DEG = 29  # Manhattan's "north" is 29 degrees east of true north
+
+# --- The plan's effect on riders (bike_network.effect) ----------------------------
+
+# A trip whose route with the plan is within this of today's length, walking
+# included, is taken to keep its route: its own street got the lane.
+SAME_ROUTE_M = 1.0
+# Example trips are drawn from this many station pairs that gain the most
+# (trips times stress saved); enough to give nearly every corridor one.
+EXAMPLE_CANDIDATES = 20000

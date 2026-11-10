@@ -446,6 +446,54 @@ St to Washington Square (7.2 km) and Park Ave only from 42nd to 32nd St.
 The 8th Ave and 6th Ave contraflow lanes are mostly in one plan only. Read
 a corridor as "this street or the next one over".
 
+### What it changes for riders
+
+The build-out scores 40,000 sampled station pairs. `python -m bike_network
+effect` routes every one of the year's 44.7 million trips again with the
+plan's blocks protected and sets each beside its route today. It agrees with
+the sample: 10.2% of the stress saved (10.4% on the sample), and 78,700 trips
+a day (64%) gain. The trips are held fixed, the same riders between the same
+stations, so this is where they would ride and what it would cost them, not
+how many more would ride.
+
+| Share of trip-km | Today | With the plan |
+|---|---|---|
+| Protected lane or path | 60.4% | 70.5% |
+| Painted lane | 20.0% | 14.6% |
+| Sharrows or shared street | 3.5% | 2.1% |
+| No bike facility | 15.9% | 12.7% |
+| Walked | 0.3% | 0.1% |
+| Trip-km over the shortest routes | +9.1% | +7.1% |
+| Cost per km | 1.27 | 1.16 |
+| Km walked a year | 329,000 | 163,000 |
+
+15% of the trip-km would ride the new lane. The detour that safety costs
+shrinks by about a fifth, 2.2 million km a year.
+
+- **A map of where trips move misses a third of the riders who gain.** 34%
+  of the trips that gain keep today's route to within a metre: the lane goes
+  on the street they already ride. They get 19% of the stress saved. The
+  facility mix of the trip-km counts them; a map of trips a day with the
+  plan minus today does not.
+- **Riders move between parallel streets.** The streets that lose the most
+  riding are 2nd Ave (6,000 trip-km a day), although the plan fills gaps in
+  its lane, the Hudson River Greenway (4,400), 6th Ave (2,600), 9th Ave and
+  Central Park's West Drive. Riders gain on Park Ave (3,600), Broadway
+  (3,300), DeKalb Ave (1,750), Lafayette St, Varick St and Nostrand Ave.
+  Changes of under 20 trips a day hold 4% of the riding that moves; the map
+  leaves them faint.
+- **The gain is uneven.** Counting a trip at both its stations, the median
+  station's trips lose 3.8% of their stress. Of the stations with at least
+  100 trips a day, the ten that gain most, 25 to 30%, are on the Upper East
+  Side, around Park Ave South and Murray Hill, in Tribeca (two on N Moore
+  St) and at 7th Ave and W 31st St.
+
+Each corridor gets one example trip: among the 20,000 station pairs that gain
+the most (trips times stress saved), the one scoring highest on that gain
+times the share of the corridor's new lane its new route rides. 214 trips
+cover 263 of the 269 corridors; a trip can be the example for several. The
+map draws each one's route today and with the plan.
+
 ### Limits
 
 - **One street per corridor.** A route that turns (5th Ave, then 23rd St)
@@ -469,7 +517,8 @@ python -m bike_network assign      # route 2025's Citi Bike trips
 python -m bike_network calibrate   # the 108-setting grid (about an hour)
 python -m bike_network calibrate --per-doubling 0.75,1.0 --painted 0.3,0.75 --walk-factor 6,8,12
 python -m bike_network candidates  # single blocks, two samples
-python -m bike_network corridors   # the 80 km build-out (--budget-km, --seed)
+python -m bike_network corridors   # the 80 km build-out (--budget-km, --seed), then effect
+python -m bike_network effect      # every trip routed again with the plan built
 python -m bike_network viz         # export the map
 python -m bike_network publish     # push it to GitHub Pages
 ```
