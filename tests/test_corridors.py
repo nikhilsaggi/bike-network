@@ -9,7 +9,7 @@ from bike_network import assignment, config, corridors, lanes, lion
 from bike_network.network import Graph, build_edges, direction_volumes
 
 REF = config.VOLUME_REFERENCE
-M = 1 / 0.3048  # feet per metre
+M = 1 / 0.3048  # feet per meter
 
 # Fifth is a busy one-way avenue running south with no lane, then a lane past
 # F4. Seventh, one short block west, is protected all the way. Short quiet
@@ -23,8 +23,8 @@ M = 1 / 0.3048  # feet per metre
 #   S4 - F4
 #        |
 #        F5
-AVE = 80  # metres per avenue block
-CROSS = 100  # metres per cross street
+AVE = 80  # meters per avenue block
+CROSS = 100  # meters per cross street
 F = [10, 11, 12, 13, 14, 15]
 S = [20, 21, 22, 23, 24]
 ROWS = [lion_row(1 + i, F[i], F[i + 1], "W", street="FIFTH", feet=AVE * M) for i in range(5)]
@@ -39,7 +39,7 @@ XY = pd.DataFrame(
     },
     index=F + S,
 )
-TOY_PRICES = np.geomspace(1, 1e4, 37)  # this grid's savings are a few hundred cost-m per metre
+TOY_PRICES = np.geomspace(1, 1e4, 37)  # this grid's savings are a few hundred cost-m per meter
 OD = pd.DataFrame({"o": [10, 11, 15], "d": [15, 15, 10], "trips": [100.0, 50.0, 20.0]})
 
 
@@ -141,10 +141,10 @@ def test_a_corridor_is_worth_more_than_its_blocks():
     assert best["alone"] == 0
 
 
-def test_a_stretch_is_built_only_where_each_metre_pays_the_price():
+def test_a_stretch_is_built_only_where_each_meter_pays_the_price():
     _, _, table, runs, dist = setup()
     run = run_of(table, "FIFTH", 10)
-    ratio = (240 * 100 + 240 * 50) / (4 * AVE)  # cost-m saved per new metre, 112.5
+    ratio = (240 * 100 + 240 * 50) / (4 * AVE)  # cost-m saved per new meter, 112.5
     got = corridors.best_stretches(runs, dist, [ratio * 0.9, ratio * 1.1])
     got = got[got["run"] == run]
     assert list(got["price"]) == [pytest.approx(ratio * 0.9)]  # not worth it at the higher price

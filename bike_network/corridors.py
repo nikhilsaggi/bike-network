@@ -22,10 +22,10 @@ that, so leaving a straight stretch and rejoining it never pays. On a
 curving street the score is a lower bound.
 
 A longer stretch never saves less, so how far one runs needs a price per
-new metre: extend while each one saves at least that. Each round of the
+new meter: extend while each one saves at least that. Each round of the
 build-out (:func:`build_out`) sets the price that its candidates would
 spend the remaining budget at, sizes every street's stretch to it, and
-builds the best by saving per new metre. Blocks already protected cost
+builds the best by saving per new meter. Blocks already protected cost
 nothing, so a stretch may join gaps across them. After each round the
 picks join the network and every street is scored again. That accounts for
 what scoring one corridor at a time cannot: two parallel avenues compete
@@ -49,13 +49,13 @@ from .network import CAR_DIRS, MIN_COST, Graph, against_traffic, other_roadbed
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-# Prices a round can set, in cost-metres a year saved per new metre: a
+# Prices a round can set, in cost-meters a year saved per new meter: a
 # geometric grid, 12 steps to a factor of ten.
 PRICES = np.geomspace(1e4, 1e7, 37)
 
-# A saving below this many cost-metres is float32 rounding, not a new route:
+# A saving below this many cost-meters is float32 rounding, not a new route:
 # distances keep about seven significant figures, so the sum of three of
-# them can undercut a 20 km route's true cost by a few thousandths of a metre.
+# them can undercut a 20 km route's true cost by a few thousandths of a meter.
 EPS = 0.5
 
 
@@ -150,7 +150,7 @@ class Runs:
     Run ``r`` has nodes ``nodes[ptr[r]:ptr[r+1]]`` (one more than its
     edges). ``length`` is the running protected cost along the run, and
     ``new`` the running length of blocks not yet protected, so a stretch's
-    new metres are a difference of two entries.
+    new meters are a difference of two entries.
     """
 
     table: pd.DataFrame
@@ -239,14 +239,14 @@ def _accumulate(
 def _best_net(
     saved: np.ndarray, new: np.ndarray, min_project: float, price: float
 ) -> tuple[int, int]:  # pragma: no cover -- compiled; covered via best_stretches()
-    """Return the stretch saving the most net of ``price`` per new metre, as (start, end); -1 if none pays."""
+    """Return the stretch saving the most net of ``price`` per new meter, as (start, end); -1 if none pays."""
     best, bs, bt = 0.0, -1, -1
     k = new.shape[0]
     for s in range(k - 1):
         for t in range(s + 1, k):
-            metres = new[t] - new[s]
-            if saved[s, t] > 0.0 and metres > 0.0:
-                x = saved[s, t] - price * max(metres, min_project)
+            meters = new[t] - new[s]
+            if saved[s, t] > 0.0 and meters > 0.0:
+                x = saved[s, t] - price * max(meters, min_project)
                 if x > best:
                     best, bs, bt = x, s, t
     return bs, bt
@@ -389,11 +389,11 @@ def stretch_matrix(runs: Runs, run: int, dist: Distances) -> tuple[np.ndarray, n
 
 
 def best_stretches(runs: Runs, dist: Distances, prices: np.ndarray) -> pd.DataFrame:
-    """Each run's best stretch at each price, ascending: the most saved net of price x new metres.
+    """Each run's best stretch at each price, ascending: the most saved net of price x new meters.
 
-    A stretch extends while each new metre saves at least the price, so a
+    A stretch extends while each new meter saves at least the price, so a
     lower price gives a longer stretch. ``saved`` and ``trips`` are a year;
-    ``ratio`` is saved per new metre (at least ``CORRIDOR_MIN_PROJECT_M``).
+    ``ratio`` is saved per new meter (at least ``CORRIDOR_MIN_PROJECT_M``).
     """
     prices = np.sort(np.asarray(prices, dtype=np.float64))
     order = np.random.default_rng(0).permutation(len(runs.ptr) - 1)  # spread long runs over threads
@@ -532,10 +532,10 @@ def build_out(
     """Greedily protect stretches until ``budget_m`` of new lane is spent.
 
     Each round scores every run against the network as built so far and
-    sets a price per new metre (:func:`round_price`). Each run's stretch
-    extends while every new metre saves at least that price. The round
-    takes the best of those by saving per new metre, skipping competitors,
-    up to ``round_m`` metres, protects them, and goes again. Returns (picks, the final edges). A pick's
+    sets a price per new meter (:func:`round_price`). Each run's stretch
+    extends while every new meter saves at least that price. The round
+    takes the best of those by saving per new meter, skipping competitors,
+    up to ``round_m`` meters, protects them, and goes again. Returns (picks, the final edges). A pick's
     ``saved`` and ``trips`` (a year) are its marginal value when it was
     picked, given every earlier pick.
     """
@@ -689,7 +689,7 @@ def describe(
     """Name, place and break down each merged corridor; also list its blocks.
 
     ``edges`` is the network before any pick. Per corridor: street,
-    heading, cross streets, metres of each kind of change (``KINDS``), and
+    heading, cross streets, meters of each kind of change (``KINDS``), and
     ``opposite``: the facility the other direction has along it today,
     weighted by length. Blocks: ``corridor, segment_id, dir, u, v, new,
     kind`` (kind is blank on blocks protected already).

@@ -152,7 +152,7 @@ def test_prepare_filters_and_dedupes():
         lion_row(1, 1, 2),
         lion_row(1, 1, 2, Street="ALT NAME"),  # same segment, another address row
         lion_row(2, 2, 3, FeatureTyp="1"),  # railroad
-        lion_row(3, 3, 4, RB_Layer="G"),  # generic centreline of a divided street
+        lion_row(3, 3, 4, RB_Layer="G"),  # generic centerline of a divided street
         lion_row(4, 4, 5, Status="3"),  # paper street
         lion_row(5, 5, 6, RW_TYPE="14"),  # ferry route
         lion_row(6, 6, 7, TrafDir=" "),  # non-street feature

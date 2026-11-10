@@ -5,7 +5,7 @@ the knobs in ``config.py`` can be moved live; it therefore ships the *inputs*
 of the cost model per segment, not the costs. ``tests/test_viz.py`` holds the
 two implementations to the same answer.
 
-Geometry is WGS84 quantised to 1e-5 degrees (about a metre), each segment's
+Geometry is WGS84 quantized to 1e-5 degrees (about a meter), each segment's
 first vertex stored as a delta from the previous segment's and the rest as
 deltas along the line. Segments are sorted along a Morton curve so those
 deltas stay small. Every LION geometry starts at its FROM node, so the stored

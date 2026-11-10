@@ -159,6 +159,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--plane); }
 .seg.small button { font-size: 12px; padding: 5px 6px; }
 .note { font-size: 12px; color: var(--ink-3); line-height: 1.45; margin: 8px 0 0; }
+.note b { color: var(--ink-2); font-weight: 600; }
+#about-h + .note { margin-top: 0; }
+.note.steps { padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.note.formula { color: var(--ink); font-size: 12px; padding: 6px 8px; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; }
 #flowRamp { height: 10px; border-radius: 2px; margin-top: 12px; }
 .share { width: 100%; border-collapse: collapse; font-size: 12px; }
 .share th { text-align: right; font-weight: 600; color: var(--ink-3); padding: 0 0 6px; font-size: 11px; }
@@ -193,7 +197,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   <header>
     <h1>NYC Bike Cost Map</h1>
     <p class="lede">Every street is drawn once per direction, on the rider's right-hand side.
-      Colour is how much a metre of riding costs, against a quiet two-way street.</p>
+      Color is how much a mile of riding costs, against a quiet two-way street.</p>
     <p class="src" id="src">LION street map · NYC DOT bike routes</p>
     <p class="src"><a href="https://github.com/nikhilsaggi/bike-network/blob/main/docs/methodology.md" target="_blank" rel="noopener">How it is built</a>
       · <a href="https://github.com/nikhilsaggi/bike-network" target="_blank" rel="noopener">Source</a></p>
@@ -219,26 +223,26 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   </section>
 
   <section class="trips-only" aria-labelledby="share-h" hidden>
-    <h2 id="share-h">Where the trip-km go</h2>
+    <h2 id="share-h">Where the trip-miles go</h2>
     <table class="share" id="share"></table>
   </section>
 
   <section class="trips-only" aria-labelledby="top-h" hidden>
     <h2 id="top-h">Busiest bike facilities</h2>
     <ol id="top" class="ranked"></ol>
-    <p class="note">Trip-km a year on the facility, and the busiest block's trips a day. Select one to go to it.</p>
+    <p class="note">Trip-miles a year on the facility, and the busiest block's trips a day. Select one to go to it.</p>
   </section>
 
   <section class="plan-only" aria-labelledby="plan-h" hidden>
     <h2 id="plan-h">Build-out</h2>
-    <div class="headline"><strong id="planKm">–</strong><span id="planKmLabel">km of new protected lane</span></div>
+    <div class="headline"><strong id="planKm">–</strong><span id="planKmLabel">miles of new protected lane</span></div>
     <div class="sub" id="planLine"></div>
     <div class="key">
       <i class="newlane"></i><span>New protected lane, with traffic</span><span class="val num" id="planNewKm"></span>
       <i class="newcontra"></i><span>New lane against one-way traffic</span><span class="val num" id="planContraKm"></span>
       <i class="oldlane"></i><span>Protected today</span><span class="val"></span>
     </div>
-    <p class="note">Picked greedily. Each round builds the stretches that save the most stress per new metre, then scores every street again with them in place, so a corridor's value counts the ones before it.</p>
+    <p class="note">Picked greedily. Each round builds the stretches that save the most stress per new foot, then scores every street again with them in place, so a corridor's value counts the ones before it.</p>
   </section>
 
   <section class="plan-only" aria-labelledby="cor-h" hidden>
@@ -259,8 +263,26 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     <p class="note" id="corNote"></p>
   </section>
 
+  <section class="cost-only" aria-labelledby="about-h">
+    <h2 id="about-h">What “cost” means</h2>
+    <p class="note">Cost is how the router picks a route from A to B. Every block has a cost in each
+      direction, and the “safest” route is the one whose blocks add up to the least cost. A block's
+      cost is its length, scaled up by two things:</p>
+    <ol class="note steps">
+      <li><b>The traffic penalty</b>: how stressful the cars make the street. Any traffic adds a
+        base amount, and heavier traffic, a higher speed limit or a truck route add more
+        (the knobs below).</li>
+      <li><b>The bike lane</b>, if any: how much of that penalty it leaves. No lane leaves all of it,
+        sharrows and painted lanes some, a protected lane none.</li>
+    </ol>
+    <p class="note formula num">cost = length × (1 + traffic penalty × share the lane leaves)</p>
+    <p class="note">So a protected lane, or a street with no cars, costs exactly its length. Where
+      riding would cost more than walking the bike on the sidewalk, or riding that way isn't
+      allowed, the block costs its length × the walking factor instead.</p>
+  </section>
+
   <section class="cost-only" aria-labelledby="legend-h">
-    <h2 id="legend-h">Cost per metre ridden</h2>
+    <h2 id="legend-h">Cost per mile ridden</h2>
     <div class="ramp" id="ramp"></div>
     <div class="ramp-ticks num" id="rampTicks"></div>
     <div class="ramp-ends"><span>No traffic</span><span id="rampQuiet">Quiet street</span><span>Worst</span></div>
@@ -271,11 +293,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   </section>
 
   <section class="cost-only" aria-labelledby="hist-h">
-    <h2 id="hist-h">Ridden km by cost</h2>
-    <div class="headline"><strong id="kmRide">–</strong><span>km of one-way travel ridden</span></div>
+    <h2 id="hist-h">Ridden miles by cost</h2>
+    <div class="headline"><strong id="kmRide">–</strong><span>miles of one-way travel ridden</span></div>
     <div class="sub" id="meanLine"></div>
-    <svg id="hist" viewBox="0 0 328 132" role="img" aria-label="Histogram of ridden kilometres by cost factor"></svg>
-    <div class="hist-tip num" id="histTip">Hover a bar for its kilometres</div>
+    <svg id="hist" viewBox="0 0 328 132" role="img" aria-label="Histogram of ridden miles by cost factor"></svg>
+    <div class="hist-tip num" id="histTip">Hover a bar for its miles</div>
   </section>
 
   <section class="cost-only" aria-labelledby="knobs-h">
@@ -320,6 +342,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     { key: "step_factor", label: "Up or down a step street", min: 2, max: 24, step: 0.5, fmt: (v) => v.toFixed(1) + "×" },
   ];
   const fmt2 = (v) => v.toFixed(2);
+  // Distances are meters in the data; the page shows US units.
+  const M_PER_MI = 1609.344, FT_PER_M = 3.28084;
+  const mi = (m) => m / M_PER_MI;
+  const ftText = (m) => Math.round(m * FT_PER_M).toLocaleString() + " ft";
 
   let data, defaults, k, edges, segPaths, counted;
   let factor, kind, colors, overlay = [];
@@ -332,12 +358,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   const DIFF_MAX = 1000;     // trips a day of difference at which it saturates
   let palette;
 
-  // ---------- colour ----------
+  // ---------- color ----------
   function hexToRgb(h) {
     const n = parseInt(h.trim().replace("#", ""), 16);
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
-  // Interpolate in OKLab so the ramp's middle stays grey rather than muddy.
+  // Interpolate in OKLab so the ramp's middle stays gray rather than muddy.
   function toLinear(c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
   function fromLinear(c) { const v = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055; return Math.round(Math.min(Math.max(v, 0), 1) * 255); }
   function rgbToOklab([r, g, b]) {
@@ -441,11 +467,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     if (mode === "trips") paintTrips();
     else if (mode === "plan") paintPlan();
     version++;
-    document.getElementById("kmRide").textContent = Math.round(kmRide / 1000).toLocaleString();
+    document.getElementById("kmRide").textContent = Math.round(mi(kmRide)).toLocaleString();
     document.getElementById("meanLine").textContent =
       "Average " + (weighted / kmRide).toFixed(2) + "× length · quiet street " + quietFactor().toFixed(2) + "×";
-    document.getElementById("kmWalkWin").textContent = (kmWalkWin / 1000).toFixed(1) + " km";
-    document.getElementById("kmWalkOnly").textContent = Math.round(kmWalkOnly / 1000).toLocaleString() + " km";
+    document.getElementById("kmWalkWin").textContent = mi(kmWalkWin).toFixed(1) + " mi";
+    document.getElementById("kmWalkOnly").textContent = Math.round(mi(kmWalkOnly)).toLocaleString() + " mi";
     drawLegend();
     drawHist(hist);
     render();
@@ -494,9 +520,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
         out += `<path d="M${i * bw + 1},${H - bottom} V${y + r} q0,-${r} ${r},-${r} H${(i + 1) * bw - 1 - r} q${r},0 ${r},${r} V${H - bottom} Z" fill="rgb(${c[0]} ${c[1]} ${c[2]})"/>`;
       }
       if (v > maxV) {
-        const cx = (i + 0.5) * bw, km = Math.round(v / 1000).toLocaleString();
+        const cx = (i + 0.5) * bw, km = Math.round(mi(v)).toLocaleString();
         out += `<path class="brk" d="M${i * bw},${top + 14} l${bw},-4 M${i * bw},${top + 18} l${bw},-4"/>`;
-        out += `<text x="${cx + bw / 2 + 3}" y="${top + 8}" text-anchor="start">${km} km</text>`;
+        out += `<text x="${cx + bw / 2 + 3}" y="${top + 8}" text-anchor="start">${km} mi</text>`;
       }
       out += `<rect class="hit" x="${i * bw}" y="${top}" width="${bw}" height="${plotH}" data-i="${i}"/>`;
     }
@@ -518,7 +544,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
       if (!t) return;
       const i = +t.dataset.i, lo = 1 + i * HIST_STEP;
       const range = i === n - 1 ? `${lo.toFixed(1)}× and over` : `${lo.toFixed(1)}–${(lo + HIST_STEP).toFixed(1)}×`;
-      tip.textContent = `${range}: ${(hist[i] / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} km`;
+      tip.textContent = `${range}: ${mi(hist[i]).toLocaleString(undefined, { maximumFractionDigits: 1 })} mi`;
     };
   }
 
@@ -588,23 +614,23 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     let traffic = "";
     if (traf !== 0) {
       const oncoming = traf !== 1 && traf !== (e.d === 0 ? 2 : 3);
-      const label = oncoming ? "Oncoming traffic" : "Traffic this way";
+      const label = oncoming ? "# oncoming cars" : "# cars";
       const own = counted.get(2 * s + (oncoming ? 1 - e.d : e.d));
       const shown = r.volume >= 1000 ? Math.round(r.volume / 100) * 100 : Math.round(r.volume / 10) * 10;
       traffic = `<dt>${label}</dt><dd>≈${shown.toLocaleString()}/day</dd>`;
       if (own !== undefined) traffic += `<dt>DOT counted</dt><dd>${own.toLocaleString()}/day</dd>`;
     }
     let verdict;
-    if (r.ride) verdict = `Ridden at <b class="num">${fmt2(r.rideFactor)}×</b> its length: costs <span class="num">${Math.round(len * r.rideFactor).toLocaleString()} m</span>.`;
+    if (r.ride) verdict = `Ridden at <b class="num">${fmt2(r.rideFactor)}×</b> its length: costs <span class="num">${ftText(len * r.rideFactor)}</span>.`;
     else if (r.canRide) verdict = `Walked: riding would cost <b class="num">${fmt2(r.rideFactor)}×</b>, the sidewalk <b class="num">${r.walkFactor.toFixed(1)}×</b>.`;
     else verdict = `Walked at <b class="num">${r.walkFactor.toFixed(1)}×</b>: riding this way is not allowed.`;
     const card = document.getElementById("card");
     card.innerHTML = `<button type="button" class="x" aria-label="Close">×</button>
-      <h4></h4><div class="dir">${heading(e.path)} · <span class="num">${Math.round(len)} m</span></div>
+      <h4></h4><div class="dir">${heading(e.path)} · <span class="num">${ftText(len)}</span></div>
       <dl>
-        <dt>Bike facility this way</dt><dd>${p & (1 << 11) ? "Shared street, local traffic only" : FACILITY_LABEL[r.facility]}</dd>
+        <dt>Bike lane</dt><dd>${p & (1 << 11) ? "Shared street, local traffic only" : FACILITY_LABEL[r.facility]}</dd>
         <dt>Cars</dt><dd>${cars}</dd>
-        <dt>Travel lanes</dt><dd>${traf === 0 ? "–" : lanes > 0 ? lanes : "not recorded"}</dd>
+        <dt>Car lanes</dt><dd>${traf === 0 ? "–" : lanes > 0 ? lanes : "not recorded"}</dd>
         ${traffic}
         <dt>Speed limit</dt><dd>${traf === 0 ? "–" : speed > 0 ? speed + " mph" : "25 mph (default)"}</dd>
         <dt>Truck route</dt><dd>${TRUCK_LABEL[(p >> 2) & 3]}</dd>
@@ -716,7 +742,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
   const HEADING = { N: "Northbound", E: "Eastbound", S: "Southbound", W: "Westbound" };
   // A corridor can join several gaps across blocks protected already; say so,
-  // or "E 35 St → E 2 St" reads as one 3 km project.
+  // or "E 35 St → E 2 St" reads as one 2 mi project.
   const OPPOSITE = { N: "Southbound", E: "Westbound", S: "Northbound", W: "Eastbound" };
   const KIND_SHORT = { none: "new lane", painted: "paint to protected", shared: "sharrows to protected", contraflow: "contraflow" };
   const KIND_LONG = {
@@ -734,7 +760,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     if (corFilter === "upgrade") return c.kind === "painted" || c.kind === "shared";
     return c.kind === "contraflow";
   }
-  const kmText = (m) => (m / 1000).toFixed(m < 10000 ? 2 : 1) + " km";
+  const kmText = (m) => mi(m).toFixed(m < 10000 ? 2 : 1) + " mi";
   function showCorridorCard(ci, e) {
     if (selected !== e) { selected = e; render(); }
     const c = data.plan.corridors[ci];
@@ -753,8 +779,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
         ${parts}
         <dt>${OPPOSITE[c.heading] || "Other direction"} today</dt><dd>${FAC_LABEL[c.opposite] || "–"}</dd>
         <dt>Trips a day that would ride it</dt><dd>${c.trips_day.toLocaleString()}</dd>
-        <dt>Stress saved a year</dt><dd>${c.saved.toLocaleString()} cost-km</dd>
-        <dt>Its blocks one at a time</dt><dd>${c.blocks.toLocaleString()} cost-km</dd>
+        <dt>Stress saved a year</dt><dd>${Math.round(mi(c.saved * 1000)).toLocaleString()} cost-mi</dd>
+        <dt>Its blocks one at a time</dt><dd>${Math.round(mi(c.blocks * 1000)).toLocaleString()} cost-mi</dd>
         <dt>Built in round</dt><dd>${c.round} of ${data.plan.rounds}</dd>
       </dl>
       <div class="verdict">${here ? here + " " : ""}Figures are for the corridor built on its own against today's network.</div>`;
@@ -766,12 +792,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
   function buildPlan(plan) {
     for (const [s, d, c, isNew, k] of plan.blocks) planIndex.set(2 * s + d, [c, isNew, k]);
-    document.getElementById("plan-h").textContent = `Build-out of ${plan.budget_km.toLocaleString()} km`;
-    document.getElementById("planKm").textContent = plan.new_km.toFixed(1);
-    document.getElementById("planKmLabel").textContent = `km of new protected lane in ${plan.corridors.length} corridors`;
+    document.getElementById("plan-h").textContent = `Build-out of ${Math.round(mi(plan.budget_km * 1000)).toLocaleString()} mi`;
+    document.getElementById("planKm").textContent = mi(plan.new_km * 1000).toFixed(1);
+    document.getElementById("planKmLabel").textContent = `miles of new protected lane in ${plan.corridors.length} corridors`;
     const contra = plan.corridors.reduce((t, c) => t + c.kinds.contraflow, 0) / 1000;
-    document.getElementById("planNewKm").textContent = (plan.new_km - contra).toFixed(1) + " km";
-    document.getElementById("planContraKm").textContent = contra.toFixed(1) + " km";
+    document.getElementById("planNewKm").textContent = mi((plan.new_km - contra) * 1000).toFixed(1) + " mi";
+    document.getElementById("planContraKm").textContent = mi(contra * 1000).toFixed(1) + " mi";
     document.querySelectorAll("[data-kind]").forEach((b) => {
       b.onclick = () => {
         corFilter = b.dataset.kind; corAll = false;
@@ -795,8 +821,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
   // Each order prints the number it sorts by, with trips a day beneath.
   const COR_ORDER = {
-    saved: { key: (c) => -c.in_plan, value: (c) => Math.round(c.in_plan / 1000).toLocaleString() + "k",
-      note: "Stress each corridor saves in the plan, in thousand cost-km a year, and trips a day that would ride it on its own. Select one to go to it." },
+    saved: { key: (c) => -c.in_plan, value: (c) => Math.round(mi(c.in_plan * 1000) / 1000).toLocaleString() + "k",
+      note: "Stress each corridor saves in the plan, in thousand cost-miles a year, and trips a day that would ride it on its own. Select one to go to it." },
     km: { key: (c) => -c.new_m, value: (c) => kmText(c.new_m),
       note: "New protected lane, and trips a day that would ride it on its own. Select one to go to it." },
     order: { key: (c, i) => i, value: (c) => kmText(c.new_m),
@@ -851,7 +877,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
       const li = document.createElement("li");
       li.innerHTML = `<button type="button"><span class="rank">${i + 1}</span>
         <span class="tname"></span>
-        <span class="tv">${(row.trip_km / 1e6).toFixed(1)}M km<small>${row.peak_day.toLocaleString()}/day</small></span></button>`;
+        <span class="tv">${(mi(row.trip_km * 1000) / 1e6).toFixed(1)}M mi<small>${row.peak_day.toLocaleString()}/day</small></span></button>`;
       const name = li.querySelector(".tname");
       name.textContent = titleCase(row.street);
       const small = document.createElement("small"); small.textContent = row.boro; name.appendChild(small);
@@ -893,8 +919,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     document.querySelectorAll(".trips-only").forEach((el) => { el.hidden = mode !== "trips"; });
     document.querySelectorAll(".plan-only").forEach((el) => { el.hidden = mode !== "plan"; });
     const lede = {
-      cost: "Every street is drawn once per direction, on the rider's right-hand side. Colour is how much a metre of riding costs, against a quiet two-way street.",
-      trips: "Every street is drawn once per direction, on the rider's right-hand side. Colour and width are Citi Bike trips a day routed along it.",
+      cost: "Every street is drawn once per direction, on the rider's right-hand side. Color is how much a mile of riding costs, against a quiet two-way street.",
+      trips: "Every street is drawn once per direction, on the rider's right-hand side. Color and width are Citi Bike trips a day routed along it.",
       plan: "Where new protected lanes would save Citi Bike riders the most stress, scored as whole corridors rather than block by block.",
     };
     document.querySelector(".lede").textContent = lede[mode];

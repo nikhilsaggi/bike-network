@@ -230,7 +230,7 @@ def evaluate(train: pd.DataFrame, folds: int = 5) -> list[Score]:
     """Score each predictor by cross-validation that never splits a street across folds.
 
     Adjacent blocks of one street carry nearly the same traffic, so holding
-    out single segments would let the model look up its neighbour's answer.
+    out single segments would let the model look up its neighbor's answer.
     """
     y = np.log(train["volume"].to_numpy())
     groups = (train["boro"].astype(str) + "|" + train["street"]).to_numpy()

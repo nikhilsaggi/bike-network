@@ -12,7 +12,7 @@ Summing it over every station pair for every candidate is about 10^11
 operations, so the pairs are sampled in proportion to their trips and each
 sampled pair stands for ``total trips / sample size`` trips: an unbiased
 estimate whose noise falls with the sample. The unit of benefit is cost-
-metres a year -- metres weighted by how stressful they are -- saved across
+meters a year -- meters weighted by how stressful they are -- saved across
 all trips.
 
 Three kinds of candidate, all on segments that exist:
@@ -117,7 +117,7 @@ def _benefits(
 
 
 def score(graph: Graph, cands: pd.DataFrame, pairs: pd.DataFrame) -> pd.DataFrame:
-    """Add ``saved`` (cost-metres a year) and ``trips`` (a year, that would use it) per candidate."""
+    """Add ``saved`` (cost-meters a year) and ``trips`` (a year, that would use it) per candidate."""
     oi = graph.node_index(pairs["o"].to_numpy())
     di = graph.node_index(pairs["d"].to_numpy())
     origins, o_row = np.unique(oi, return_inverse=True)

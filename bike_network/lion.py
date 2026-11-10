@@ -1,6 +1,6 @@
 """Read LION into one row per physical street segment.
 
-LION is NYC DCP's street centreline. Its codes, from the release metadata:
+LION is NYC DCP's street centerline. Its codes, from the release metadata:
 
 - ``TrafDir``: ``W`` one-way from the FROM node to the TO node, ``A`` one-way
   TO -> FROM, ``T`` two-way, ``P`` pedestrian path, blank for non-streets.
@@ -59,7 +59,7 @@ COLUMNS = [
 
 
 def _code(s: pd.Series) -> pd.Series:
-    """LION pads its coded strings with spaces; normalise to stripped strings."""
+    """LION pads its coded strings with spaces; normalize to stripped strings."""
     return s.fillna("").astype(str).str.strip()
 
 
@@ -68,7 +68,7 @@ def _number(s: pd.Series) -> pd.Series:
 
 
 def prepare(raw: pd.DataFrame) -> pd.DataFrame:
-    """Filter and normalise raw LION rows (LION's own column names).
+    """Filter and normalize raw LION rows (LION's own column names).
 
     Returns one row per kept segment with snake_case columns. Works on a plain
     DataFrame or a GeoDataFrame; a geometry column is carried through.

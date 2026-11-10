@@ -27,7 +27,7 @@ EPSG:2263) and `data/build/edges.parquet` (one row per directed edge).
 
 `python -m bike_network viz` then exports the network to `data/build/viz/`
 for the edge-cost viewer (`viz/index.html`): every street drawn once per
-direction, coloured by cost, with a slider for each knob below. Serve that
+direction, colored by cost, with a slider for each knob below. Serve that
 folder (`python -m http.server -d data/build/viz`) and open it. The viewer
 recomputes costs in the browser with `viz/cost.js`, which
 `tests/test_viz.py` holds to the Python model. Once `assign` has run, its Citi Bike
@@ -83,7 +83,7 @@ instead: consecutive blocks of one street in one direction, which a trip can
 join at any intersection and leave at any later one. It then spends a budget
 of new protected lane greedily (`--budget-km`, default 80, about NYC's yearly
 Streets Plan target). Each round builds the stretches that save the most
-stress per new metre, re-routes, and scores every street again, about 90
+stress per new meter, re-routes, and scores every street again, about 90
 seconds a round. It writes `corridors.parquet` (one row per corridor, in
 build order), `corridor_edges.parquet` (its blocks) and `corridors.json` (the
 plan's totals), and `viz` then adds a New corridors view to the map. The
@@ -142,7 +142,7 @@ estimate ranks streets better than it measures any one of them.
 - DOT's bike routes and LION have drifted apart in segment ids. Separated
   paths DOT has never recorded take their directions from LION (586 blocks);
   see [docs/methodology.md](docs/methodology.md).
-- About 30 DOT lane records are attached to the generic centreline of a
+- About 30 DOT lane records are attached to the generic centerline of a
   divided street (LION layer `G`) rather than its carriageways, so they do not
   reach the network. Another ~270 current records name a segment LION does
   not have.

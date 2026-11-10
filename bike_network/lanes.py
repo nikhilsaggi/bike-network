@@ -29,7 +29,7 @@ def _classify(names: pd.Series) -> pd.Series:
     cls = names.map(config.FACILITY_CLASS)
     unknown = names.notna() & (names != "") & cls.isna()
     if unknown.any():
-        # A new DOT facility name is a modelling decision, not a default.
+        # A new DOT facility name is a modeling decision, not a default.
         msg = f"unmapped DOT facility names: {sorted(names[unknown].unique())}"
         raise ValueError(msg)
     return cls.fillna("none")

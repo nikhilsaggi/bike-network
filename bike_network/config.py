@@ -17,7 +17,7 @@ BUILD_DIR = DATA_DIR / "build"
 
 # --- Sources -----------------------------------------------------------------
 
-# NYC DCP's LION street centreline. Releases are named YYx (26a, 26b, ...) and
+# NYC DCP's LION street centerline. Releases are named YYx (26a, 26b, ...) and
 # published at a stable path; the DCP download page renders its links in
 # script, so the URL is built here rather than scraped.
 LION_RELEASE = "26c"
@@ -50,7 +50,7 @@ DEMAND_YEAR = 2025
 KEEP_FEATURE_TYPES = frozenset({"0", "6", "A", "W", "C"})
 # RB_Layer: R roadbed-only and B both are the physical carriageways; N holds
 # pedestrian paths and greenways (2,197 current bike-lane records sit there).
-# G is the generic centreline of a divided street, which would duplicate its
+# G is the generic centerline of a divided street, which would duplicate its
 # roadbeds.
 KEEP_RB_LAYERS = frozenset({"B", "R", "N"})
 CONSTRUCTED = "2"  # Status
@@ -121,7 +121,7 @@ STEP_FACTOR = 12.0
 # Columbus Circle) reach 59 degrees between LION nodes.
 CORRIDOR_MAX_TURN_DEG = 60
 # Every project costs at least about a block. Without a floor, a 9 m sliver
-# at an intersection outranks every corridor on saving per new metre.
+# at an intersection outranks every corridor on saving per new meter.
 CORRIDOR_MIN_PROJECT_M = 100
 # The build-out's default budget: about 50 miles, NYC's Streets Plan target
 # for protected bike lanes a year.

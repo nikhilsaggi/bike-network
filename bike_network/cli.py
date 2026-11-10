@@ -170,7 +170,7 @@ def run_assignment() -> None:
     safe = assignment.assign(graph, od, workers=WORKERS)
     short = assignment.assign(base, od, workers=WORKERS)
     r, s = safe.od, short.od
-    same_node = od.loc[od["o"] == od["d"], "trips"].sum()  # neighbouring stations
+    same_node = od.loc[od["o"] == od["d"], "trips"].sum()  # neighboring stations
     print(
         f"  {r['trips'].sum():,.0f} trips routed ({same_node:,.0f} start and end at one node); "
         f"{(~r['reachable']).sum()} pairs unreachable"
@@ -366,7 +366,7 @@ def run_candidates() -> None:
 
 
 def run_corridors(budget_km: float, seed: int = 0) -> None:
-    """Build out protected corridors greedily, best stress saved per new metre first."""
+    """Build out protected corridors greedily, best stress saved per new meter first."""
     edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet")
     seg = pd.read_parquet(
         config.BUILD_DIR / "segments.parquet",

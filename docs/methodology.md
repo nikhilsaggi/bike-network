@@ -99,7 +99,7 @@ numbers. The others stay where judgment put them.
 | Busiest arterials, no lane | about 5.5 |
 | Walking the bike | 8 |
 
-A factor of 3 means a rider treats a metre of that street like three metres
+A factor of 3 means a rider treats a meter of that street like three meters
 of protected lane. Routes trade length for comfort at exactly these rates.
 
 ## 3. Traffic volume
@@ -115,7 +115,7 @@ on every street: width, travel lanes, one-way, truck route, snow-plough
 priority, borough, display level, parking lanes and bridge.
 
 **Evaluation.** Five-fold cross-validation with whole streets held out
-together, so a block's neighbour never gives away its answer:
+together, so a block's neighbor never gives away its answer:
 
 | Predictor of log daily volume | R² | Rank correlation | Typical error |
 |---|---|---|---|
@@ -352,12 +352,12 @@ From 48th St down to 42nd St saves 37,000 (355 trips a day), to 34th St
 ### How far a corridor runs
 
 A longer stretch never saves less, so its extent needs a price: extend
-while each new metre saves at least that much. Blocks already protected
+while each new meter saves at least that much. Blocks already protected
 cost nothing, so a stretch may join gaps across them. On 5th Ave
 southbound the south end is 23rd St at almost any price, because that is
 where the lane starts. The north end moves with the price:
 
-| Price (cost-m a year saved per new metre) | Best stretch of 5th Ave | New km | Trips a day |
+| Price (cost-m a year saved per new meter) | Best stretch of 5th Ave | New km | Trips a day |
 |---|---|---|---|
 | 383,000 | 25th St to 23rd St, the Madison Square block | 0.2 | 1,900 |
 | 316,000 | 55th St to 23rd St | 2.6 | 6,300 |
@@ -373,7 +373,7 @@ prices. It takes the highest price at which each run's best stretch,
 summed over the runs, would fill what is left of the budget. Summing counts
 two parallel avenues twice, so the price comes out high, and the next
 round sets it again. At that price each run offers one stretch, and the
-round builds them in order of saving per new metre. It skips a stretch if
+round builds them in order of saving per new meter. It skips a stretch if
 more than 10% of the trips it helps are also helped by one already taken
 this round: those two compete for the same riders, so the second waits for
 the next round's rescore, which sees the first built. The round stops at
@@ -383,31 +383,31 @@ blocks already protected, are reported as one corridor.
 | Knob | Value | Why |
 |---|---|---|
 | Budget | 80 km | About 50 miles: NYC's Streets Plan target for protected bike lanes a year |
-| Shortest project | 100 m | Every project costs at least about a block. Without a floor, a 9 m sliver at an intersection outranks every corridor on saving per metre |
+| Shortest project | 100 m | Every project costs at least about a block. Without a floor, a 9 m sliver at an intersection outranks every corridor on saving per meter |
 | New lane per round | 10 km | Picks interact; rescoring every 10 km lets later picks see the earlier ones built |
 | Shared riders | 10% | Two stretches that help disjoint sets of trips are each worth what they scored |
-| Prices | 10,000 to 10 million cost-m a year per new metre, 12 steps to a factor of ten | Spans the best gap (about 2 million) to far below the price an 80 km budget sets |
+| Prices | 10,000 to 10 million cost-m a year per new meter, 12 steps to a factor of ten | Spans the best gap (about 2 million) to far below the price an 80 km budget sets |
 | Sharpest turn in a run | 60° | Broadway's own bends, at Madison Square and Columbus Circle, reach 59° between LION nodes |
 
 A trip's distances come from 40,000 station pairs sampled in proportion to
 their trips, as in `candidates`. Distances are float32, so a saving under
-half a cost-metre is rounding and is not counted.
+half a cost-meter is rounding and is not counted.
 
 ### What it found
 
 An 80 km build-out on the 2025 trips (`python -m bike_network corridors`)
 took 11 rounds, at prices that fell from 178,000 to 100,000 cost-m a year
-per new metre. It saves 10.4% of the stress on every Citi Bike trip, and
+per new meter. It saves 10.4% of the stress on every Citi Bike trip, and
 79,000 trips a day (65%) ride at least one new block. Of the new lane,
 27.5 km goes where there is none, 16.5 km makes a painted lane protected,
 11.2 km does the same for sharrows or a shared street, and 25.0 km runs
 against one-way traffic.
 
 - **Most of the budget fills gaps.** 253 of the 269 corridors are under a
-  kilometre (median 150 m), and they hold 54 km and three quarters of the
+  kilometer (median 150 m), and they hold 54 km and three quarters of the
   saving. Most are missing blocks in lanes that are already busy, such as
   short gaps in 2nd Ave's lane.
-- **Sixteen corridors run a kilometre or more** and hold the other 26 km.
+- **Sixteen corridors run a kilometer or more** and hold the other 26 km.
   Built alone, they save 3.3 times what their blocks save one at a time,
   which is why the block list missed them. The largest are Park Ave
   southbound from 98th to 47th St (4.1 km), DeKalb Ave westbound in
@@ -419,7 +419,7 @@ against one-way traffic.
   South southbound had taken the East Side's riders, and what was left on
   5th Ave was 44th to 29th St (1.2 km, 2,600 trips a day). Madison Ave
   northbound from 39th to 103rd St saves 781,000 on its own today, 151,000
-  per new metre; with the rest of the plan built, 85,000 per new metre,
+  per new meter; with the rest of the plan built, 85,000 per new meter,
   under the last round's price, so it is not built.
 - **Manhattan gets 62 km**, Brooklyn 16, Queens 1.4 and the Bronx 0.1. That
   is where Citi Bike's trips are, not a judgment on where lanes are needed.
@@ -428,7 +428,7 @@ against one-way traffic.
   Grand St each get one. With length the only cost, nothing weighs what a
   contraflow lane on an avenue would take space from.
 
-Ranking by saving per new metre, with no price to size the stretches,
+Ranking by saving per new meter, with no price to size the stretches,
 spent the same 80 km on 361 fragments that saved 9.4%. Its stretches
 extended only as far as the densest piece of each street, so long
 corridors arrived block by block, and the budget ran out before most of
