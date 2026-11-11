@@ -125,12 +125,16 @@ def _per_direction(
     return out[0], out[1]
 
 
-def flow_summary(seg: gpd.GeoDataFrame, flows: pd.DataFrame) -> dict[str, Any]:
+def flow_summary(
+    seg: gpd.GeoDataFrame, flows: pd.DataFrame, rank: pd.Series | None = None
+) -> dict[str, Any]:
     """Trip-km shares by facility, both routings, and the busiest bike facilities.
 
     ``flows`` is the ``assign`` command's output. A facility is a street name in
     a borough, summed over its directed edges with any bike facility; its
-    ``bbox`` frames the blocks that carry it, for the viewer to fly to.
+    ``bbox`` frames the blocks that carry it, for the viewer to fly to. Given
+    ``rank`` (segment id to the payload's segment order), each facility also
+    lists those edges as ``2 * segment + direction``, for the viewer to light.
     """
     kind = (
         np.where(flows["mode"] == "walk", "walked", flows["facility"])
@@ -153,19 +157,20 @@ def flow_summary(seg: gpd.GeoDataFrame, flows: pd.DataFrame) -> dict[str, Any]:
     geom = seg.drop_duplicates("segment_id").set_index("segment_id").geometry.to_crs(4326)
     rows = []
     for r in top.itertuples():
-        ids = on_lanes.loc[
-            (on_lanes["street"] == r.street) & (on_lanes["boro"] == r.boro), "segment_id"
-        ]
-        w, s, e, n = geom.reindex(ids.unique()).total_bounds
-        rows.append(
-            {
-                "street": r.street,
-                "boro": BORO.get(int(r.boro), ""),
-                "trip_km": round(r.trip_km),
-                "peak_day": round(r.peak / 365),
-                "bbox": [round(w, 5), round(s, 5), round(e, 5), round(n, 5)],
-            }
-        )
+        on = on_lanes[(on_lanes["street"] == r.street) & (on_lanes["boro"] == r.boro)]
+        w, s, e, n = geom.reindex(on["segment_id"].unique()).total_bounds
+        row = {
+            "street": r.street,
+            "boro": BORO.get(int(r.boro), ""),
+            "trip_km": round(r.trip_km),
+            "peak_day": round(r.peak / 365),
+            "bbox": [round(w, 5), round(s, 5), round(e, 5), round(n, 5)],
+        }
+        if rank is not None:
+            at = rank.reindex(on["segment_id"]).to_numpy()
+            code = 2 * at + (on["dir"] == "rev").to_numpy()
+            row["edges"] = sorted({int(c) for c in code[~np.isnan(at)]})
+        rows.append(row)
     return {
         "year": config.DEMAND_YEAR,
         "trips": round(flows.attrs.get("trips_routed", 0)),
@@ -384,10 +389,10 @@ def export(
     names, name_idx = np.unique(seg["street"].to_numpy(), return_inverse=True)
     rank = np.empty(len(order), dtype=np.int64)
     rank[order] = np.arange(len(order))
+    pos = pd.Series(rank, index=seg["segment_id"])
+    pos = pos[~pos.index.duplicated()]
     measured: list[list[int]] = []
     if counted is not None:
-        pos = pd.Series(rank, index=seg["segment_id"])
-        pos = pos[~pos.index.duplicated()]
         c = counted.dropna(subset=["volume_counted"])
         c = c[c["segment_id"].isin(pos.index)]
         measured = [
@@ -403,12 +408,10 @@ def export(
             "tr": tr[order].tolist(),
             "sf": sf[order].tolist(),
             "sr": sr[order].tolist(),
-            "flow": flow_summary(seg, flows),
+            "flow": flow_summary(seg, flows, pos),
         }
     extra: dict[str, Any] = {}
     if plan is not None:
-        pos = pd.Series(rank, index=seg["segment_id"])
-        pos = pos[~pos.index.duplicated()]
         extra["plan"] = plan_layer(seg, pos, plan)
         if effect is not None and flows is not None:
             pf, pr = _per_direction(seg, effect["flows"], "trips")

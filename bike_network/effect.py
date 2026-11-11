@@ -295,37 +295,54 @@ def examples(
 
 
 def distinct(
-    examples: pd.DataFrame, edges: pd.DataFrame, overlap: float | None = None
+    examples: pd.DataFrame,
+    edges: pd.DataFrame,
+    overlap: float | None = None,
+    min_m: float | None = None,
+    min_moved: float | None = None,
 ) -> pd.DataFrame:
-    """Sort example trips by the share of their stress saved, and mark the ones to list.
+    """Sort example trips by the stress they save a year, and mark the ones to list.
 
-    Neighboring corridors often pick much the same trip, sometimes the
-    other way. Two trips are alike when the streets they share, in either
-    direction and on either route, make up more than ``overlap`` of the
-    shorter one's. Going down the sorted list, ``listed`` marks each trip
-    unlike every one listed before it. Every trip stays, so each corridor
+    The stress saved is trips times the drop in cost, so a long, busy trip
+    outranks a short one that rides nothing but new lane. A trip is listed
+    when both its routes are at least ``min_m`` long, at least ``min_moved``
+    of its route with the plan is on streets today's route does not ride
+    (a trip whose route stays put shows little on the map), and it is unlike
+    every trip listed above it. Neighboring corridors often pick much the
+    same trip, sometimes the other way: two trips are alike when the streets
+    they share, in either direction and on either route, make up more than
+    ``overlap`` of the shorter one's. Every trip stays, so each corridor
     keeps its own.
     """
     overlap = config.EXAMPLE_OVERLAP if overlap is None else overlap
+    min_m = config.EXAMPLE_MIN_M if min_m is None else min_m
+    min_moved = config.EXAMPLE_MIN_MOVED if min_moved is None else min_moved
     if examples.empty:
         return examples.assign(listed=pd.Series(dtype=bool))
     saved = 1 - examples["cost_plan"] / examples["cost_today"]
+    saved_year = examples["trips"] * (examples["cost_today"] - examples["cost_plan"])
     out = (
-        examples.assign(saved_share=saved)
-        .sort_values(["saved_share", "trips"], ascending=False, kind="stable")
+        examples.assign(saved_share=saved, saved_year=saved_year)
+        .sort_values(["saved_year", "trips"], ascending=False, kind="stable")
         .reset_index(drop=True)
     )
     sid = edges["segment_id"].to_numpy()
+    meters = edges["length_m"].to_numpy()
     length = edges.drop_duplicates("segment_id").set_index("segment_id")["length_m"]
-    streets = [
-        set(sid[np.concatenate([np.asarray(t, dtype=int), np.asarray(p, dtype=int)])])
-        for t, p in zip(out["today_edges"], out["plan_edges"], strict=True)
-    ]
-    total = [float(length.reindex(list(s)).sum()) for s in streets]
     listed: list[int] = []
-    for i, s in enumerate(streets):
+    streets: dict[int, set] = {}
+    total: dict[int, float] = {}
+    for i, (today, plan) in enumerate(zip(out["today_edges"], out["plan_edges"], strict=True)):
+        t, p = np.asarray(today, dtype=int), np.asarray(plan, dtype=int)
+        plan_m = meters[p].sum()
+        moved = meters[p][~np.isin(sid[p], sid[t])].sum()
+        if min(meters[t].sum(), plan_m) < min_m or moved < min_moved * plan_m:
+            continue
+        streets[i] = set(sid[np.concatenate([t, p])])
+        total[i] = float(length.reindex(list(streets[i])).sum())
         alike = any(
-            float(length.reindex(list(s & streets[j])).sum()) > overlap * min(total[i], total[j])
+            float(length.reindex(list(streets[i] & streets[j])).sum())
+            > overlap * min(total[i], total[j])
             for j in listed
         )
         if not alike:

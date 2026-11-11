@@ -183,6 +183,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   padding: 7px 0; font-weight: 400;
 }
 .ranked button:hover .tname { text-decoration: underline; }
+.ranked button[aria-pressed="true"] .tname { font-weight: 600; }
+.ranked button[aria-pressed="true"] .rank { color: var(--ink); }
 .ranked .rank { color: var(--ink-3); font-family: var(--font-num); font-size: 12px; }
 .ranked .tname { min-width: 0; }
 .ranked .tname small { display: block; color: var(--ink-3); font-size: 11px; }
@@ -256,7 +258,7 @@ h2.later { margin-top: 18px; }
   <section class="trips-only" aria-labelledby="top-h" hidden>
     <h2 id="top-h">Busiest bike facilities</h2>
     <ol id="top" class="ranked"></ol>
-    <p class="note">Trip-miles a year on the facility, and the busiest block's trips a day. Select one to go to it.</p>
+    <p class="note">Trip-miles a year on the facility, and the busiest block's trips a day. Select one to go to it and light its blocks; select it again or press Escape to clear.</p>
   </section>
 
   <section class="plan-only" aria-labelledby="plan-h" hidden>
@@ -452,6 +454,8 @@ h2.later { margin-top: 18px; }
   let planView = "corridors", selectedExample = null, selectedStation = null, exAll = false;
   const NO_ROUTE = { today: [], plan: [], fresh: [] };
   let route = NO_ROUTE, stationObjs = [], exampleOf = new Map();
+  // The busiest facility picked from the Citi Bike trips list, and its lit edges.
+  let selectedFac = null, facEdges = [];
   const EX_SHOWN = 8, ST_SHOWN = 8;
   // "change" maps trips a day with the plan minus today; "split" puts today's
   // map and the plan's side by side, the second in its own deck.gl pane.
@@ -842,6 +846,7 @@ h2.later { margin-top: 18px; }
         updateTriggers: { getSize: arrowKey, getPixelOffset: arrowKey, getColor: arrowKey },
       }),
       ...routeLayers(),
+      ...facilityLayers(),
       ...stationLayers(),
       ...selectionLayers(),
     ];
@@ -1290,6 +1295,26 @@ h2.later { margin-top: 18px; }
       line("route-new", route.fresh, 3, palette.planNew.concat(255)),
     ];
   }
+  // The busiest facility picked from the list, lit as a selected block is.
+  function facilityLayers() {
+    if (mode !== "trips" || selectedFac === null) return [];
+    const line = (id, width, color) => new deck.PathLayer({
+      id, data: facEdges, getPath: (e) => e.path, positionFormat: "XY", getColor: color, getWidth: width,
+      widthUnits: "pixels", getOffset: offset * 1.4 / width, extensions: [offsetExt],
+      capRounded: true, jointRounded: true, pickable: false,
+      updateTriggers: { getOffset: offset },
+    });
+    return [line("fac-casing", 8, CASING), line("fac-lit", 4, LIT)];
+  }
+  function selectFacility(i) {
+    const top = data.flow.top;
+    selectedFac = i === selectedFac ? null : i;
+    facEdges = selectedFac === null ? []
+      : (top[i].edges || []).map((code) => edgeOf[code]).filter((j) => j >= 0).map((j) => edges[j]);
+    document.querySelectorAll("#top button").forEach((b, j) => b.setAttribute("aria-pressed", String(j === selectedFac)));
+    render();
+    if (selectedFac !== null) flyTo(top[i].bbox);
+  }
   function stationLayers() {
     if (mode !== "plan" || planView !== "stations") return [];
     return [new deck.ScatterplotLayer({
@@ -1421,8 +1446,9 @@ h2.later { margin-top: 18px; }
     li.querySelector("button").onclick = onclick;
     return li;
   }
-  // The examples come sorted by the share of stress saved; a trip much like
-  // one above it is left off the list, though its corridor's card still links it.
+  // The examples come sorted by the stress they save a year (trips times the
+  // drop in cost). A short trip, one whose route barely moves, or one much like
+  // a trip above it is left off the list, though its corridor's card still links it.
   function renderExamples() {
     const ex = data.plan.effect.examples, list = document.getElementById("exList");
     const listed = ex.map((x, i) => i).filter((i) => ex[i].listed !== false);
@@ -1436,8 +1462,8 @@ h2.later { margin-top: 18px; }
     more.hidden = listed.length <= EX_SHOWN;
     more.textContent = exAll ? `Show the first ${EX_SHOWN}` : `Show all ${listed.length.toLocaleString()}`;
     document.getElementById("exNote").textContent =
-      `One real trip for each corridor, among the station pairs that gain most, sorted by the share of their stress saved, with trips a day. ` +
-      `${(ex.length - listed.length).toLocaleString()} of the ${ex.length.toLocaleString()} are left off for sharing most of their streets with one above. ` +
+      `One real trip for each corridor, among the station pairs that gain most, sorted by the stress saved (trips a day times the drop per trip), with the share saved and trips a day. ` +
+      `${(ex.length - listed.length).toLocaleString()} of the ${ex.length.toLocaleString()} are left off: too short, keeping mostly today's route, or sharing most of their streets with one above. ` +
       `Select one to see both routes.`;
   }
 
@@ -1629,13 +1655,13 @@ h2.later { margin-top: 18px; }
     const list = document.getElementById("top");
     flow.top.forEach((row, i) => {
       const li = document.createElement("li");
-      li.innerHTML = `<button type="button"><span class="rank">${i + 1}</span>
+      li.innerHTML = `<button type="button" aria-pressed="false"><span class="rank">${i + 1}</span>
         <span class="tname"></span>
         <span class="tv">${(mi(row.trip_km * 1000) / 1e6).toFixed(1)}M mi<small>${row.peak_day.toLocaleString()}/day</small></span></button>`;
       const name = li.querySelector(".tname");
       name.textContent = titleCase(row.street);
       const small = document.createElement("small"); small.textContent = row.boro; name.appendChild(small);
-      li.querySelector("button").onclick = () => flyTo(row.bbox);
+      li.querySelector("button").onclick = () => selectFacility(i);
       list.appendChild(li);
     });
     document.querySelectorAll("[data-flow]").forEach((b) => {
@@ -1680,6 +1706,7 @@ h2.later { margin-top: 18px; }
     };
     document.querySelector(".lede").textContent = lede[mode];
     selectedExample = null; route = NO_ROUTE; selectedStation = null; syncPlanView();
+    if (selectedFac !== null) selectFacility(selectedFac);
     compare = "change"; syncCompare(); closeSplit();
     document.getElementById("card").hidden = true; selected = null; selectedCorridor = null;
     recompute();
@@ -1743,7 +1770,7 @@ h2.later { margin-top: 18px; }
     } else fallback();
   };
   document.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape") closeEffect();
+    if (ev.key === "Escape") { closeEffect(); if (selectedFac !== null) selectFacility(selectedFac); }
   });
 
   function onTheme() { if (!data) return; readPalette(); recompute(); }

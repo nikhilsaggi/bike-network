@@ -493,10 +493,14 @@ the most (trips times stress saved), the one scoring highest on that gain
 times the share of the corridor's new lane its new route rides. 214 trips
 cover 263 of the 269 corridors; a trip can be the example for several. The
 map draws each one's route today and with the plan. Its list sorts them by
-the share of their stress saved and leaves out a trip when more than 30% of
-the shorter one's streets, either way and on either route, are shared with
-one above it: neighboring corridors on one avenue often pick much the same
-trip. That lists 105 of the 214.
+the stress they save (trips times the drop in cost per trip), so a busy,
+long trip outranks a short one that rides nothing but new lane. It leaves
+out a trip when either route is under 1.2 km; when less than 30% of its
+route with the plan is on streets today's route does not ride, since a lane
+on the street a trip already takes shows little on a map of both routes;
+and when more than 30% of the shorter one's streets, either way and on
+either route, are shared with one above it: neighboring corridors on one
+avenue often pick much the same trip. That lists 52 of the 214.
 
 ### Limits
 

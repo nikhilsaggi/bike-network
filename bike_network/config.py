@@ -144,3 +144,8 @@ EXAMPLE_CANDIDATES = 20000
 # Two example trips are alike when they share more than this share of the
 # shorter one's streets; the list shows the one that saves more.
 EXAMPLE_OVERLAP = 0.3
+# The list leaves out trips too short to show much (either route under this)
+# and trips whose route barely moves: less than this share of the route with
+# the plan on streets today's route does not ride.
+EXAMPLE_MIN_M = 1200.0
+EXAMPLE_MIN_MOVED = 0.3
