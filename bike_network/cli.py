@@ -311,7 +311,7 @@ def run_calibration(grid: dict[str, list[float]] | None = None) -> None:
 
 
 def run_candidates() -> None:
-    """Score every possible single-block upgrade by the stress it would save Citi Bike trips."""
+    """Score every possible single-block upgrade by the cost it would save Citi Bike trips."""
     edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet")
     seg = pd.read_parquet(
         config.BUILD_DIR / "segments.parquet",
@@ -374,7 +374,7 @@ def run_candidates() -> None:
 
 
 def run_corridors(budget_km: float, seed: int = 0) -> None:
-    """Build out protected corridors greedily, best stress saved per new meter first."""
+    """Build out protected corridors greedily, best cost saved per new meter first."""
     edges = pd.read_parquet(config.BUILD_DIR / "edges.parquet")
     seg = pd.read_parquet(
         config.BUILD_DIR / "segments.parquet",
@@ -429,7 +429,7 @@ def run_corridors(budget_km: float, seed: int = 0) -> None:
     )
     print(
         f"  Saves {(weight * gain).sum() / 1000:,.0f} cost-km a year, "
-        f"{(weight * gain).sum() / total:.1%} of the stress on every trip today; "
+        f"{(weight * gain).sum() / total:.1%} of the cost of every trip today; "
         f"{helped / 365:,.0f} trips a day ({helped / weight.sum():.1%}) ride at least one new block"
     )
     print(
@@ -489,7 +489,7 @@ def run_effect() -> None:
     )
     pct = lambda v: f"{v:.1%}"  # noqa: E731
     print(
-        f"  Saves {pct(summary['saved_share'])} of the stress on every trip; "
+        f"  Saves {pct(summary['saved_share'])} of the cost of every trip; "
         f"{summary['helped_day']:,} trips a day ({pct(summary['helped_share'])}) gain, "
         f"{pct(summary['same_route_share'])} of them on the route they ride today "
         f"({pct(summary['same_route_saved'])} of the saving)"
@@ -575,7 +575,7 @@ def main() -> None:
             type=lambda s: [float(x) for x in s.split(",")],
             help=f"comma-separated values (default {','.join(map(str, values))})",
         )
-    sub.add_parser("candidates", help="rank single-block upgrades by the stress they would save")
+    sub.add_parser("candidates", help="rank single-block upgrades by the cost they would save")
     cor = sub.add_parser("corridors", help="build out protected corridors greedily under a budget")
     cor.add_argument(
         "--budget-km",

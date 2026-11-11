@@ -4,7 +4,7 @@
 the year's trips on the network with the plan's new blocks protected and sets
 the result beside ``assign``'s routes today, trip by trip. The trips are held
 fixed: the same riders between the same stations. So it shows where they
-would ride and how much less stress it would cost them, not how many more
+would ride and how much less it would cost them, not how many more
 people would ride.
 
 A map of where trips move shows only the riders who change route. Many of the
@@ -67,7 +67,7 @@ def compare(today: pd.DataFrame, plan: pd.DataFrame) -> pd.DataFrame:
 
 
 def gains(pairs: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return each pair's stress saved per trip, whether it gains, and whether it keeps its route."""
+    """Return each pair's cost saved per trip, whether it gains, and whether it keeps its route."""
     gain = (pairs["cost_today"] - pairs["cost_plan"]).to_numpy()
     helped = gain > EPS
     same = (
@@ -141,7 +141,7 @@ def summarize(
 
 
 def station_gains(pairs: pd.DataFrame, stations: pd.DataFrame) -> pd.DataFrame:
-    """Per network node with a station: its trips and the share of their stress the plan saves.
+    """Per network node with a station: its trips and the share of their cost the plan saves.
 
     A trip counts at both ends. ``stations`` is ``assign``'s
     ``stations.parquet``; stations snapped to one node are pooled, placed at
@@ -239,7 +239,7 @@ def examples(
 
     ``corridor`` gives each edge row's corridor number (-1 for none) and
     ``new_m`` its meters of new lane (0 unless the plan builds it). From the
-    ``candidates`` pairs that gain most (trips times stress saved), each
+    ``candidates`` pairs that gain most (trips times cost saved), each
     corridor takes the one scoring highest on that gain times the share of
     the corridor's new lane its route with the plan rides. One pair can be
     the example for several corridors; it is listed once, with all of them in
@@ -301,9 +301,9 @@ def distinct(
     min_m: float | None = None,
     min_moved: float | None = None,
 ) -> pd.DataFrame:
-    """Sort example trips by the stress they save a year, and mark the ones to list.
+    """Sort example trips by the cost they save a year, and mark the ones to list.
 
-    The stress saved is trips times the drop in cost, so a long, busy trip
+    The cost saved is trips times the drop in cost, so a long, busy trip
     outranks a short one that rides nothing but new lane. A trip is listed
     when both its routes are at least ``min_m`` long, at least ``min_moved``
     of its route with the plan is on streets today's route does not ride

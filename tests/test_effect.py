@@ -225,7 +225,7 @@ def test_a_mid_block_node_takes_the_nearest_cross_street_along_its_own_street():
     assert lone[1] == "One St"
 
 
-def test_distinct_sorts_by_stress_saved_and_lists_long_moved_unlike_trips():
+def test_distinct_sorts_by_cost_saved_and_lists_long_moved_unlike_trips():
     _, edges = network()
     ex = pd.DataFrame(
         {

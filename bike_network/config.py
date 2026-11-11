@@ -139,7 +139,7 @@ MANHATTAN_GRID_DEG = 29  # Manhattan's "north" is 29 degrees east of true north
 # included, is taken to keep its route: its own street got the lane.
 SAME_ROUTE_M = 1.0
 # Example trips are drawn from this many station pairs that gain the most
-# (trips times stress saved); enough to give nearly every corridor one.
+# (trips times cost saved); enough to give nearly every corridor one.
 EXAMPLE_CANDIDATES = 20000
 # Two example trips are alike when they share more than this share of the
 # shorter one's streets; the list shows the one that saves more.
