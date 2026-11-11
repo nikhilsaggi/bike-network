@@ -24,11 +24,16 @@ import shapely
 from . import config
 from .corridors import KINDS
 from .effect import MIX, place_names
+from .pages import page
 
 if TYPE_CHECKING:
     import geopandas as gpd
 
 QUANT = 1e5
+# The payload's layout. Bump it with any change the viewer has to be changed to
+# read, and ``DATA_FORMAT`` in viz/index.html with it: the Pages workflow only
+# redeploys a new page over the published data when the two numbers agree.
+FORMAT = 1
 SIMPLIFY_FT = 3.0
 TRAF_CODE = {"T": 1, "W": 2, "A": 3}  # anything else: no cars
 FAC_CODE = {"none": 0, "shared": 1, "painted": 2, "separated": 3}
@@ -412,6 +417,7 @@ def export(
     return {
         **trips,
         **extra,
+        "format": FORMAT,
         "lion_release": config.LION_RELEASE,
         "origin": [int(origin[0]), int(origin[1])],
         "quant": QUANT,
@@ -429,22 +435,6 @@ def export(
         "vr": attrs["vr"].to_numpy()[order].tolist(),
         "counted": measured,
     }
-
-
-def page() -> str:
-    """Return the viewer page as a whole document.
-
-    ``viz/index.html`` is written as a page body (the artifact host adds the
-    document around it); a standalone copy gets that skeleton here.
-    """
-    body = (config.ROOT / "viz" / "index.html").read_text()
-    return (
-        '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
-        '<meta name="description" content="Every NYC street costed by cycling stress, a year of '
-        'Citi Bike trips routed over it, and where new protected lanes would help most.">'
-        f"</head><body>\n{body}\n</body></html>\n"
-    )
 
 
 def write(payload: dict[str, Any]) -> None:

@@ -1,0 +1,44 @@
+name: Pages
+
+# The data is built where the 8 GB of inputs are and published with
+# `python -m bike_network publish`. A push that changes only the viewer is put
+# over the data already on gh-pages here, so the site follows main. If the page
+# reads a different data.json format than the one published, this fails and
+# publishes nothing: run `viz` and `publish` locally.
+on:
+  push:
+    branches: [main]
+    paths:
+      - viz/index.html
+      - viz/cost.js
+      - bike_network/pages.py
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      # Standard library only: no install needed.
+      - name: Republish the viewer over the published data
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: python -m bike_network.pages refresh

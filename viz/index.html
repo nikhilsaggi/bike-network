@@ -432,6 +432,8 @@ h2.later { margin-top: 18px; }
     { key: "walk_factor", label: "On a sidewalk", min: 1.5, max: 16, step: 0.5, fmt: (v) => v.toFixed(1) + "×" },
     { key: "step_factor", label: "Up or down a step street", min: 2, max: 24, step: 0.5, fmt: (v) => v.toFixed(1) + "×" },
   ];
+  // The data.json layout this page reads: FORMAT in bike_network/viz.py.
+  const DATA_FORMAT = 1;
   const fmt2 = (v) => v.toFixed(2);
   // Distances are meters in the data; the page shows US units.
   const M_PER_MI = 1609.344, FT_PER_M = 3.28084;
@@ -1753,6 +1755,7 @@ h2.later { margin-top: 18px; }
     if (!r.ok) throw new Error("data.json returned " + r.status);
     return r.json();
   }).then((d) => {
+    if (d.format !== DATA_FORMAT) throw new Error(`data.json is format ${d.format ?? "0"}, this page reads format ${DATA_FORMAT}`);
     data = d; defaults = Object.assign({}, d.knobs); k = Object.assign({}, defaults);
     document.getElementById("src").textContent = `LION ${d.lion_release.toUpperCase()} street map · NYC DOT bike routes · ${d.n.toLocaleString()} segments`;
     readPalette();

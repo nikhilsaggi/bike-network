@@ -20,9 +20,9 @@ def repo(tmp_path):
     return root
 
 
-def site(path, data="{}"):
+def site(path, data=f'{{"format": {viz.FORMAT}}}'):
     path.mkdir(parents=True, exist_ok=True)
-    (path / "index.html").write_text(viz.page())
+    (path / "index.html").write_text(pages.page())
     (path / "cost.js").write_text((config.ROOT / "viz" / "cost.js").read_text())
     (path / "data.json").write_text(data)
     return path
@@ -84,3 +84,61 @@ def test_pages_url(remote):
 
 def test_pages_url_is_none_off_github():
     assert pages.pages_url("https://gitlab.com/someone/bike-network.git") is None
+
+
+def test_viewer_reads_the_format_the_export_writes():
+    assert pages.page_format(pages.page()) == viz.FORMAT
+
+
+def test_export_in_another_format_is_refused(tmp_path):
+    build = tmp_path / "build"
+    out = site(build / "viz", data='{"n": 1}')
+    assert pages.stale(out, build) == [
+        f"data.json is format 0 and the viewer reads format {viz.FORMAT}"
+    ]
+
+
+@pytest.fixture
+def remote(repo, tmp_path):
+    """A bare remote whose gh-pages holds an older viewer over some data."""
+    bare = tmp_path / "remote.git"
+    pages.git(tmp_path, "init", "-q", "--bare", str(bare))
+    pages.git(repo, "remote", "add", "origin", str(bare))
+    old = site(tmp_path / "old", data=f'{{"format": {viz.FORMAT}, "n": 7}}')
+    (old / "index.html").write_text("an older viewer")
+    commit = pages.commit_site(old, repo, "Publish the map built from abc1234")
+    pages.git(repo, "push", "-q", "origin", f"{commit}:refs/heads/{pages.BRANCH}")
+    return bare
+
+
+def test_refresh_puts_the_viewer_over_the_published_data(repo, remote):
+    commit = pages.refresh(repo)
+    assert pages.git(remote, "rev-parse", pages.BRANCH) == commit
+    assert pages.git(repo, "show", f"{commit}:index.html") == pages.page().strip()
+    assert pages.git(repo, "show", f"{commit}:data.json") == f'{{"format": {viz.FORMAT}, "n": 7}}'
+    assert pages.git(repo, "rev-list", "--count", commit) == "1"
+    first = pages.git(repo, "log", "-1", "--format=%B", commit)
+    assert "Data: Publish the map built from abc1234 (" in first
+    # nothing new: nothing published
+    assert pages.refresh(repo) is None
+    # a later page-only publish still names the build the data came from
+    (repo / "README.md").write_text("changed\n")
+    pages.git(repo, "commit", "-qam", "change")
+    data_line = next(line for line in first.splitlines() if line.startswith("Data: "))
+    old = site(repo.parent / "older", data=f'{{"format": {viz.FORMAT}, "n": 7}}')
+    (old / "index.html").write_text("yet another viewer")
+    stale_commit = pages.git(
+        repo, "commit-tree", pages.site_tree(old, repo), "-m", f"Publish the viewer\n\n{data_line}"
+    )
+    pages.git(repo, "push", "-qf", "origin", f"{stale_commit}:refs/heads/{pages.BRANCH}")
+    again = pages.refresh(repo)
+    assert data_line in pages.git(repo, "log", "-1", "--format=%B", again).splitlines()
+
+
+def test_refresh_refuses_data_in_another_format(repo, remote, tmp_path):
+    other = site(tmp_path / "other", data='{"n": 1}')
+    commit = pages.commit_site(other, repo, "Publish the map built from old")
+    pages.git(repo, "push", "-qf", "origin", f"{commit}:refs/heads/{pages.BRANCH}")
+    with pytest.raises(SystemExit, match="format 0"):
+        pages.refresh(repo)
+    assert pages.git(remote, "rev-parse", pages.BRANCH) == commit

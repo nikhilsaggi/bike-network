@@ -44,6 +44,16 @@ than any build file it was made from, so run `viz` first. `--no-push` builds
 the branch without pushing it. A fork needs Pages turned on once, serving
 `gh-pages` from `/`.
 
+A push to `main` that changes only the viewer (`viz/index.html`,
+`viz/cost.js`) does not need any of that: the Pages workflow
+(`.github/workflows/pages.yml`) runs `python -m bike_network.pages refresh`,
+which puts the new page over the `data.json` already published. The export
+stamps its layout as `format` (`FORMAT` in `bike_network/viz.py`) and the page
+declares the one it reads (`DATA_FORMAT` in `viz/index.html`); bump both
+together when the viewer needs new data. When they differ from what is
+published, the workflow fails without publishing, and the site waits for a
+local `viz` and `publish`.
+
 ## Routing Citi Bike trips
 
 `python -m bike_network assign` downloads Citi Bike's
