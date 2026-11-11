@@ -471,7 +471,7 @@ how many more would ride.
 shrinks by about a fifth, 2.2 million km a year.
 
 - **A map of where trips move misses a third of the riders who gain.** 34%
-  of the trips that gain keep today's route to within a metre: the lane goes
+  of the trips that gain keep today's route to within a meter: the lane goes
   on the street they already ride. They get 19% of the stress saved. The
   facility mix of the trip-km counts them; a map of trips a day with the
   plan minus today does not.
@@ -495,7 +495,7 @@ cover 263 of the 269 corridors; a trip can be the example for several. The
 map draws each one's route today and with the plan. Its list sorts them by
 the share of their stress saved and leaves out a trip when more than 30% of
 the shorter one's streets, either way and on either route, are shared with
-one above it: neighbouring corridors on one avenue often pick much the same
+one above it: neighboring corridors on one avenue often pick much the same
 trip. That lists 105 of the 214.
 
 ### Limits

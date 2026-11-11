@@ -307,7 +307,7 @@ h2.later { margin-top: 18px; }
     <ol id="joinList" class="ranked"></ol>
     <h2 id="leave-h" class="later">Streets riders leave</h2>
     <ol id="leaveList" class="ranked"></ol>
-    <p class="note">Net change in trip-km a day along the street, both directions. Select one to go to it.</p>
+    <p class="note">Net change in trip-miles a day along the street, both directions. Select one to go to it.</p>
   </section>
 
   <section class="plan-only" data-pv="stations" aria-labelledby="st-h" hidden>
@@ -455,7 +455,7 @@ h2.later { margin-top: 18px; }
   // map and the plan's side by side, the second in its own deck.gl pane.
   let compare = "change", planDeck = null, paneExt = null, planColors, planWidths, shiftNotes = {};
   const SPLIT_STACK_PX = 640;  // a map narrower than this stacks the two panes
-  const SAVED_MAX = 0.2;     // share of a station's stress saved at which its colour saturates
+  const SAVED_MAX = 0.2;     // share of a station's stress saved at which its color saturates
   const ST_LIST_MIN = 100;   // trips a day for a station to make the list
   const SHIFT_FAINT = 20;    // a change of fewer trips a day than this is drawn faint
   const COR_SHOWN = 25;
@@ -701,7 +701,7 @@ h2.later { margin-top: 18px; }
   }
 
   // How edge i is drawn, overlays included: the width its offset is measured
-  // in, the width seen, and its colour.
+  // in, the width seen, and its color.
   function look(i) {
     if (mode === "cost") {
       if (kind[i] === 1) return { c: 1.4, w: 3, rgb: palette.walk };
@@ -731,11 +731,11 @@ h2.later { margin-top: 18px; }
     head(64); g.fill(); g.stroke();
     return cv.toDataURL();
   }
-  // Pixel offset from a block's centreline to the middle of edge i's line.
+  // Pixel offset from a block's centerline to the middle of edge i's line.
   // Heading (u east, v north) has its right-hand side at (v, -u) east and
   // north, which is (v, u) in an icon offset's east and south.
-  function sideOffset(i, centre) { return [arrowDir[2 * i + 1] * centre, arrowDir[2 * i] * centre]; }
-  const centreOf = (c) => offset * Math.max(c * widthScale, MIN_PX);
+  function sideOffset(i, center) { return [arrowDir[2 * i + 1] * center, arrowDir[2 * i] * center]; }
+  const centerOf = (c) => offset * Math.max(c * widthScale, MIN_PX);
 
   // Arrowheads go only on blocks in and around the view, picked again once
   // the map pans past that margin: drawing all of them slows every frame.
@@ -760,7 +760,7 @@ h2.later { margin-top: 18px; }
     return true;
   }
 
-  // Each direction's arrowhead: on its line in the line's colour, or cut out
+  // Each direction's arrowhead: on its line in the line's color, or cut out
   // of a line too wide to show one on top.
   function paintArrows() {
     const key = `${version}|${widthScale}|${offset}`;
@@ -774,23 +774,23 @@ h2.later { margin-top: 18px; }
       const { c, w, rgb } = look(i), px = Math.max(w * widthScale, MIN_PX);
       const knock = px >= KNOCKOUT_PX, col = knock ? palette.plane : rgb;
       arrowSize[i] = knock ? Math.min(1.25 * px, 24) : Math.min(Math.max(4.2 * px, 11), 22);
-      arrowOff.set(sideOffset(i, centreOf(c)), 2 * i);
+      arrowOff.set(sideOffset(i, centerOf(c)), 2 * i);
       arrowRgba[4 * i] = col[0]; arrowRgba[4 * i + 1] = col[1]; arrowRgba[4 * i + 2] = col[2]; arrowRgba[4 * i + 3] = 255;
     }
   }
 
-  // The selected direction is lit and cased, so it reads on any colour and
+  // The selected direction is lit and cased, so it reads on any color and
   // apart from the hover highlight, with its arrowhead at every zoom.
   function selectionLayers() {
     if (!selected) return [];
-    const i = selected.i, { c, w } = look(i), centre = centreOf(c);
+    const i = selected.i, { c, w } = look(i), center = centerOf(c);
     const lit = Math.max(w * widthScale, MIN_PX) + 2, casing = lit + 3;
     const line = (id, width, color) => new deck.PathLayer({
       id, data: [selected], getPath: (e) => e.path, positionFormat: "XY", getColor: color, getWidth: width,
-      widthUnits: "pixels", getOffset: centre / width, extensions: [offsetExt],
+      widthUnits: "pixels", getOffset: center / width, extensions: [offsetExt],
       capRounded: true, jointRounded: true, pickable: false,
     });
-    const at = [arrowPos[2 * i], arrowPos[2 * i + 1]], off = sideOffset(i, centre);
+    const at = [arrowPos[2 * i], arrowPos[2 * i + 1]], off = sideOffset(i, center);
     return [
       line("sel-casing", casing, CASING),
       line("sel-lit", lit, LIT),
@@ -1218,12 +1218,12 @@ h2.later { margin-top: 18px; }
   const hasEffect = () => !!(data && data.plan && data.plan.effect && data.pf);
   const PLAN_LEDE = {
     corridors: "Where new protected lanes would save Citi Bike riders the most stress, scored as whole corridors rather than block by block.",
-    riders: "The same Citi Bike trips routed again with the plan built. Colour and width are the change in trips a day along each street, each direction.",
+    riders: "The same Citi Bike trips routed again with the plan built. Color and width are the change in trips a day along each street, each direction.",
     stations: "Each Citi Bike station by how much less stress its trips would cost with the plan built.",
-    split: "The same Citi Bike trips today and with the plan built, side by side. Colour and width are trips a day along each street, each direction.",
+    split: "The same Citi Bike trips today and with the plan built, side by side. Color and width are trips a day along each street, each direction.",
   };
   const pctText = (v, digits = 0) => (v * 100).toFixed(digits) + "%";
-  const distText = (m) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`);
+  const distText = (m) => (mi(m) < 0.1 ? `${Math.round(m * FT_PER_M / 10) * 10} ft` : `${mi(m).toFixed(1)} mi`);
   const setRgb = (i, rgb, w) => { colors[4 * i] = rgb[0]; colors[4 * i + 1] = rgb[1]; colors[4 * i + 2] = rgb[2]; colors[4 * i + 3] = 255; widths[i] = w; };
   const isNew = (e) => { const c = planIndex.get(2 * e.s + e.d); return c !== undefined && c[1] === 1; };
 
@@ -1367,7 +1367,7 @@ h2.later { margin-top: 18px; }
       <h4></h4><div class="dir"></div>
       <table class="cmp"><thead><tr><th>Route rides on</th><th>Today</th><th>With the plan</th></tr></thead><tbody>${rows}
         <tr class="total"><td>Distance</td><td>${distText(total(x.today))}</td><td>${distText(total(x.plan))}</td></tr>
-        <tr><td>Stress, cost-km</td><td>${(x.today.cost / 1000).toFixed(1)}</td><td>${(x.plan.cost / 1000).toFixed(1)}</td></tr>
+        <tr><td>Stress, cost-miles</td><td>${mi(x.today.cost).toFixed(1)}</td><td>${mi(x.plan.cost).toFixed(1)}</td></tr>
       </tbody></table>
       <div class="key">
         <i class="rtoday"></i><span>Today's route</span><span class="val"></span>
@@ -1500,7 +1500,7 @@ h2.later { margin-top: 18px; }
     const zoomed = setZoom(vs.zoom), culled = cullArrows(vs);
     if (zoomed || culled) render();
   }
-  // The pane's streets in the plan's colours, with arrowheads from ARROW_ZOOM
+  // The pane's streets in the plan's colors, with arrowheads from ARROW_ZOOM
   // and the selected direction lit, as on the main map.
   function paneLayers() {
     const widthOf = (i) => Math.max(planWidths[i] * widthScale, MIN_PX);
@@ -1516,7 +1516,7 @@ h2.later { margin-top: 18px; }
         id: "pane-arrows", data: arrowData, iconAtlas: atlas, iconMapping: ARROW_ICONS, getIcon: () => "arrow",
         getPosition: (e) => [arrowPos[2 * e.i], arrowPos[2 * e.i + 1]], getAngle: (e) => arrowAngle[e.i],
         getSize: (e) => { const px = widthOf(e.i); return px >= KNOCKOUT_PX ? Math.min(1.25 * px, 24) : Math.min(Math.max(3.5 * px, 9), 20); },
-        sizeUnits: "pixels", getPixelOffset: (e) => sideOffset(e.i, centreOf(planWidths[e.i])),
+        sizeUnits: "pixels", getPixelOffset: (e) => sideOffset(e.i, centerOf(planWidths[e.i])),
         getColor: (e) => (widthOf(e.i) >= KNOCKOUT_PX ? palette.plane.concat(255) : planColors.subarray(4 * e.i, 4 * e.i + 4)),
         billboard: false, pickable: false,
         updateTriggers: { getSize: [version, widthScale], getPixelOffset: [version, widthScale, offset], getColor: [version, widthScale] },
@@ -1526,7 +1526,7 @@ h2.later { margin-top: 18px; }
       const lit = widthOf(selected.i) + 2;
       out.push(new deck.PathLayer({
         id: "pane-selected", data: [selected], getPath: (e) => e.path, positionFormat: "XY", getColor: LIT,
-        getWidth: lit, widthUnits: "pixels", getOffset: centreOf(planWidths[selected.i]) / lit, extensions: [paneExt],
+        getWidth: lit, widthUnits: "pixels", getOffset: centerOf(planWidths[selected.i]) / lit, extensions: [paneExt],
         capRounded: true, jointRounded: true, pickable: false,
       }));
     }
@@ -1551,14 +1551,14 @@ h2.later { margin-top: 18px; }
     const bar = (v) => `<span class="bar" style="width:${(v * 100).toFixed(1)}%"></span>`;
     const pair = (label, a, b) => `<tr class="sep"><td>${label}</td><td class="v">${a}</td><td class="v">${b}</td></tr>`;
     document.getElementById("gainTable").innerHTML =
-      `<thead><tr><th>Share of trip-km</th><th>Today</th><th>With the plan</th></tr></thead><tbody>` +
+      `<thead><tr><th>Share of trip-miles</th><th>Today</th><th>With the plan</th></tr></thead><tbody>` +
       SHARE_ROWS.map(([key, label]) => {
         const a = eff.share.today[key] || 0, b = eff.share.plan[key] || 0;
         return `<tr><td>${label}</td><td class="v">${pctText(a, 1)}${bar(a)}</td><td class="v plan">${pctText(b, 1)}${bar(b)}</td></tr>`;
       }).join("") +
       pair("Longer than the shortest routes", "+" + pctText(eff.detour.today, 1), "+" + pctText(eff.detour.plan, 1)) +
-      `<tr><td>Cost per km</td><td class="v">${eff.cost_per_km.today.toFixed(2)}×</td><td class="v">${eff.cost_per_km.plan.toFixed(2)}×</td></tr>` +
-      `<tr><td>Km walked a year</td><td class="v">${Math.round(eff.walked_km.today / 1000)}k</td><td class="v">${Math.round(eff.walked_km.plan / 1000)}k</td></tr>` +
+      `<tr><td>Cost per mile</td><td class="v">${eff.cost_per_km.today.toFixed(2)}×</td><td class="v">${eff.cost_per_km.plan.toFixed(2)}×</td></tr>` +
+      `<tr><td>Miles walked a year</td><td class="v">${Math.round(mi(eff.walked_km.today))}k</td><td class="v">${Math.round(mi(eff.walked_km.plan))}k</td></tr>` +
       "</tbody>";
     document.getElementById("gainNote").textContent =
       `The same ${(eff.trips / 1e6).toFixed(1)} million trips between the same stations, routed again with the plan built: where they would ride, not new riders. ` +
@@ -1574,7 +1574,7 @@ h2.later { margin-top: 18px; }
     shiftNotes = {
       change: `Trips a day with the plan built minus today. Blue is where riders would move to, red the streets they would leave. ` +
         `A change of under ${SHIFT_FAINT} a day is left faint: ${pctText(small / moved)} of the riding that moves. ` +
-        `${pctText(eff.on_new)} of all trip-km would ride the new lane.`,
+        `${pctText(eff.on_new)} of all trip-miles would ride the new lane.`,
       split: `Every trip on its safest route: today on the left, with the plan built on the right (today on top on a narrow screen). ` +
         `The same trips, so riding one map gains, the other loses. Pan or zoom either; both follow.`,
     };
@@ -1587,7 +1587,7 @@ h2.later { margin-top: 18px; }
     const streets = (id, items) => {
       const list = document.getElementById(id);
       items.forEach((r, i) => list.appendChild(rankedItem(i + 1, titleCase(r.street), r.boro,
-        `${r.km_day > 0 ? "+" : "−"}${Math.abs(r.km_day).toLocaleString()}`, "km/day", () => flyTo(r.bbox))));
+        `${r.km_day > 0 ? "+" : "−"}${Math.round(mi(Math.abs(r.km_day) * 1000)).toLocaleString()}`, "mi/day", () => flyTo(r.bbox))));
     };
     streets("joinList", eff.shifts.join);
     streets("leaveList", eff.shifts.leave);
@@ -1597,7 +1597,7 @@ h2.later { margin-top: 18px; }
     const saved = st.saved.slice().sort((a, b) => a - b);
     document.getElementById("stNote").textContent =
       `Each dot is a station, or the stations at one corner, sized by trips a day starting or ending there. ` +
-      `Colour is the share of those trips' stress the plan saves: ${pctText(saved[Math.floor(saved.length / 2)], 1)} at the median station.`;
+      `Color is the share of those trips' stress the plan saves: ${pctText(saved[Math.floor(saved.length / 2)], 1)} at the median station.`;
     const top = st.name.map((_, i) => i).filter((i) => st.trips_day[i] >= ST_LIST_MIN)
       .sort((a, b) => st.saved[b] - st.saved[a]).slice(0, ST_SHOWN);
     const list = document.getElementById("stList");

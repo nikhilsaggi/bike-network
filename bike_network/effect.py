@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 KEY = ["segment_id", "dir", "u", "v"]
 PLACE_SEARCH_M = 400  # how far along its street a mid-block node looks for a cross street
-# How a route's metres are split, in the viewer's order.
+# How a route's meters are split, in the viewer's order.
 MIX = ("separated", "painted", "shared", "none", "walked")
 
 
@@ -220,7 +220,7 @@ def route_paths(graph: Graph, o: np.ndarray, d: np.ndarray, batch: int = 64) -> 
 
 
 def route_mix(edges: pd.DataFrame, rows: np.ndarray) -> dict[str, float]:
-    """Metres of a route by what it rides on (``MIX``); walked metres whatever the facility."""
+    """Meters of a route by what it rides on (``MIX``); walked meters whatever the facility."""
     e = edges.iloc[rows]
     kind = np.where(e["mode"] == "walk", "walked", e["facility"])
     m = pd.Series(e["length_m"].to_numpy()).groupby(kind).sum()
@@ -238,7 +238,7 @@ def examples(
     """One real trip per corridor that shows what it changes, today and with the plan.
 
     ``corridor`` gives each edge row's corridor number (-1 for none) and
-    ``new_m`` its metres of new lane (0 unless the plan builds it). From the
+    ``new_m`` its meters of new lane (0 unless the plan builds it). From the
     ``candidates`` pairs that gain most (trips times stress saved), each
     corridor takes the one scoring highest on that gain times the share of
     the corridor's new lane its route with the plan rides. One pair can be
@@ -257,8 +257,8 @@ def examples(
         on = (c >= 0) & (m > 0)
         if not on.any():
             continue
-        for ci, metres in pd.Series(m[on]).groupby(c[on]).sum().items():
-            score = weighted[j] * min(1.0, metres / total[ci])
+        for ci, meters in pd.Series(m[on]).groupby(c[on]).sum().items():
+            score = weighted[j] * min(1.0, meters / total[ci])
             if score > best.get(int(ci), (0.0, -1))[0]:
                 best[int(ci)] = (score, int(j))
     if not best:
@@ -299,7 +299,7 @@ def distinct(
 ) -> pd.DataFrame:
     """Sort example trips by the share of their stress saved, and mark the ones to list.
 
-    Neighbouring corridors often pick much the same trip, sometimes the
+    Neighboring corridors often pick much the same trip, sometimes the
     other way. Two trips are alike when the streets they share, in either
     direction and on either route, make up more than ``overlap`` of the
     shorter one's. Going down the sorted list, ``listed`` marks each trip
