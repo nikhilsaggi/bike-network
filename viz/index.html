@@ -369,6 +369,10 @@ h2.later { margin-top: 18px; }
 
   <section class="cost-only" aria-labelledby="hist-h">
     <h2 id="hist-h">Ridden miles by cost</h2>
+    <div class="seg small" id="histScale" role="group" aria-label="Histogram scale">
+      <button type="button" data-hist="zoom" aria-pressed="true">Zoomed in</button>
+      <button type="button" data-hist="full" aria-pressed="false">True scale</button>
+    </div>
     <svg id="hist" viewBox="0 0 328 132" role="img" aria-label="Histogram of ridden miles by cost factor"></svg>
     <div class="hist-tip num" id="histTip">Hover a bar for its miles</div>
     <div class="sub" id="meanLine"></div>
@@ -437,7 +441,7 @@ h2.later { margin-top: 18px; }
   let version = 0, deckgl, selected = null, widthScale = 1, offset = OFFSET_LO, zoomStep = null;
   let arrowPos, arrowDir, arrowAngle, arrowSize, arrowOff, arrowRgba, arrowKey = null;
   let arrowData = [], arrowBox = null;
-  let mode = "cost", flowView = "safest", widths;
+  let mode = "cost", flowView = "safest", histFull = false, lastHist, widths;
   let planIndex = new Map(), selectedCorridor = null, corSort = "saved", corAll = false;
   let corFilter = "all", planDashed = [], dashedAt = new Map();
   // The plan's views: "corridors", "riders" (where trips go with it built) or "stations".
@@ -625,13 +629,15 @@ h2.later { margin-top: 18px; }
   }
 
   function drawHist(hist) {
+    lastHist = hist;
     const svg = document.getElementById("hist");
     const W = 328, H = 132, top = 8, bottom = 22, left = 0;
     const plotH = H - top - bottom, n = hist.length, bw = W / n;
     // One bar (the quiet streets) can hold most of the network; scale to the
     // next tallest so the rest can be read, and mark the clipped bar.
     const sorted = Array.from(hist).sort((a, b) => b - a);
-    const clip = sorted[0] > 2.5 * sorted[1] && sorted[1] > 0;
+    const tall = sorted[0] > 2.5 * sorted[1] && sorted[1] > 0, clip = tall && !histFull;
+    document.getElementById("histScale").hidden = !tall;
     const maxV = clip ? sorted[1] * 1.6 : Math.max(sorted[0], 1);
     const x = (f) => left + (f - 1) / (HIST_MAX - 1 + HIST_STEP) * W;
     let out = `<line class="axis" x1="0" x2="${W}" y1="${H - bottom + 0.5}" y2="${H - bottom + 0.5}"/>`;
@@ -1751,6 +1757,13 @@ h2.later { margin-top: 18px; }
     counted = new Map(d.counted.map(([s, dir, v]) => [2 * s + dir, v]));
     decode(d);
     buildKnobs();
+    document.querySelectorAll("[data-hist]").forEach((b) => {
+      b.onclick = () => {
+        histFull = b.dataset.hist === "full";
+        document.querySelectorAll("[data-hist]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+        drawHist(lastHist);
+      };
+    });
     if (d.flow) buildTrips(d.flow); else document.getElementById("modeTrips").hidden = true;
     if (d.plan) buildPlan(d.plan); else document.getElementById("modePlan").hidden = true;
     offsetExt = new deck.PathStyleExtension({ offset: true });
