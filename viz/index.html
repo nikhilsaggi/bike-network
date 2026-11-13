@@ -90,8 +90,6 @@ section { display: flex; flex-direction: column; }
 .ramp-ticks span.c { transform: translateX(-50%); }
 .key { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px 10px; align-items: center; margin-top: 12px; }
 .key i { display: block; height: 0; border-top-style: solid; }
-.key .walkwin { border-top-width: 3px; border-color: var(--line-walk); }
-.key .walkonly { border-top-width: 1px; border-color: var(--line-faint); outline: 1px solid var(--rule); outline-offset: 2px; }
 .key .val { color: var(--ink-2); font-size: 12px; }
 .key .newlane { border-top-width: 4px; border-color: var(--plan-new); }
 .key .oldlane { border-top-width: 2px; border-color: var(--plan-old); }
@@ -367,10 +365,6 @@ h2.later { margin-top: 18px; }
     <div class="ramp" id="ramp"></div>
     <div class="ramp-ticks num" id="rampTicks"></div>
     <div class="ramp-ends"><span>No traffic</span><span id="rampQuiet">Quiet street</span><span>Worst</span></div>
-    <div class="key">
-      <i class="walkwin"></i><span>Walking the bike beats riding</span><span class="val num" id="kmWalkWin"></span>
-      <i class="walkonly"></i><span>Walk only: against traffic, or a footpath</span><span class="val num" id="kmWalkOnly"></span>
-    </div>
   </section>
 
   <section class="cost-only" aria-labelledby="hist-h">
@@ -579,7 +573,7 @@ h2.later { margin-top: 18px; }
     const m = edges.length;
     if (!factor || factor.length !== m) { factor = new Float32Array(m); kind = new Uint8Array(m); colors = new Uint8Array(m * 4); }
     const hist = new Float64Array(Math.round((HIST_MAX - 1) / HIST_STEP) + 1);
-    let kmRide = 0, kmWalkWin = 0, kmWalkOnly = 0, weighted = 0;
+    let kmRide = 0, weighted = 0;
     overlay = [];
     for (let i = 0; i < m; i++) {
       const e = edges[i], s = e.s;
@@ -593,8 +587,8 @@ h2.later { margin-top: 18px; }
         const b = Math.min(Math.floor((r.factor - 1 + 1e-9) / HIST_STEP), hist.length - 1);
         hist[Math.max(b, 0)] += len;
       } else if (r.canRide) {
-        kind[i] = 1; factor[i] = r.factor; rgb = palette.walk; kmWalkWin += len; overlay.push(e);
-      } else { kind[i] = 2; factor[i] = r.factor; rgb = palette.faint; kmWalkOnly += len; }
+        kind[i] = 1; factor[i] = r.factor; rgb = palette.walk; overlay.push(e);
+      } else { kind[i] = 2; factor[i] = r.factor; rgb = palette.faint; }
       colors[4 * i] = rgb[0]; colors[4 * i + 1] = rgb[1]; colors[4 * i + 2] = rgb[2]; colors[4 * i + 3] = 255;
     }
     if (mode === "trips") paintTrips();
@@ -603,8 +597,6 @@ h2.later { margin-top: 18px; }
     document.getElementById("kmRide").textContent = Math.round(mi(kmRide)).toLocaleString();
     document.getElementById("meanLine").textContent =
       "Average " + (weighted / kmRide).toFixed(2) + "× length · quiet street " + quietFactor().toFixed(2) + "×";
-    document.getElementById("kmWalkWin").textContent = mi(kmWalkWin).toFixed(1) + " mi";
-    document.getElementById("kmWalkOnly").textContent = Math.round(mi(kmWalkOnly)).toLocaleString() + " mi";
     drawLegend();
     drawHist(hist);
     render();
