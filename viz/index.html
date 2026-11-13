@@ -427,7 +427,7 @@ h2.later { margin-top: 18px; }
     { group: "Share of that penalty a lane leaves" },
     { key: "exposure_painted", label: "Painted lane", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
     { key: "exposure_shared", label: "Sharrows or signed route", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
-    { group: "Walking the bike, × length", note: "A block costs the cheaper of riding it or walking the bike. Blocks you can't ride, like the wrong way on a one-way or a footpath, are always walked." },
+    { group: "Walking the bike, × length", note: "A block's cost is capped at the walking cost, since on a dangerous enough road the cyclist would walk instead. Blocks that can't be ridden (e.g. against traffic, pedestrian-only) are always walked." },
     { key: "walk_factor", label: "On a sidewalk", min: 1.5, max: 16, step: 0.5, fmt: (v) => v.toFixed(1) + "×" },
     { key: "step_factor", label: "Up or down a step street", min: 2, max: 24, step: 0.5, fmt: (v) => v.toFixed(1) + "×" },
   ];
