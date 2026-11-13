@@ -115,6 +115,7 @@ section { display: flex; flex-direction: column; }
 #hist .walklabel { fill: var(--ink); }
 #hist rect.hit { fill: transparent; cursor: default; }
 .hist-tip { min-height: 18px; font-size: 12px; color: var(--ink-2); margin-top: 6px; }
+button.link { border: 0; background: none; padding: 0; font: inherit; color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 
 /* knobs */
 .group { display: flex; flex-direction: column; gap: 12px; }
@@ -399,14 +400,11 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
   </section>
 
   <section class="cost-only" aria-labelledby="hist-h">
-    <h2 id="hist-h">Ridden miles by cost</h2>
-    <div class="seg small" id="histScale" role="group" aria-label="Histogram scale">
-      <button type="button" data-hist="zoom" aria-pressed="true">Zoomed in</button>
-      <button type="button" data-hist="full" aria-pressed="false">True scale</button>
-    </div>
+    <h2 id="hist-h">Cost distribution</h2>
     <svg id="hist" viewBox="0 0 328 132" role="img" aria-label="Histogram of ridden miles by cost factor"></svg>
     <div class="hist-tip num" id="histTip">Hover a bar for its miles</div>
     <div class="sub" id="meanLine"></div>
+    <p class="note" id="histScaleNote"><span id="histScaleText"></span> <button type="button" class="link" id="histScale"></button></p>
   </section>
 
   <section class="cost-only" aria-labelledby="knobs-h">
@@ -674,7 +672,9 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     // next tallest so the rest can be read, and mark the clipped bar.
     const sorted = Array.from(hist).sort((a, b) => b - a);
     const tall = sorted[0] > 2.5 * sorted[1] && sorted[1] > 0, clip = tall && !histFull;
-    document.getElementById("histScale").hidden = !tall;
+    document.getElementById("histScaleNote").hidden = !tall;
+    document.getElementById("histScaleText").textContent = histFull ? "Drawn to true scale." : "The tallest bar is cut off so the rest can be read.";
+    document.getElementById("histScale").textContent = histFull ? "Zoom in" : "Show true scale";
     const maxV = clip ? sorted[1] * 1.6 : Math.max(sorted[0], 1);
     const x = (f) => left + (f - 1) / (HIST_MAX - 1 + HIST_STEP) * W;
     let out = `<line class="axis" x1="0" x2="${W}" y1="${H - bottom + 0.5}" y2="${H - bottom + 0.5}"/>`;
@@ -1910,13 +1910,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     counted = new Map(d.counted.map(([s, dir, v]) => [2 * s + dir, v]));
     decode(d);
     buildKnobs();
-    document.querySelectorAll("[data-hist]").forEach((b) => {
-      b.onclick = () => {
-        histFull = b.dataset.hist === "full";
-        document.querySelectorAll("[data-hist]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-        drawHist(lastHist);
-      };
-    });
+    document.getElementById("histScale").onclick = () => { histFull = !histFull; drawHist(lastHist); };
     if (d.flow) buildTrips(d.flow); else document.getElementById("modeTrips").hidden = true;
     if (d.plan) buildPlan(d.plan); else document.getElementById("modePlan").hidden = true;
     offsetExt = new deck.PathStyleExtension({ offset: true });
