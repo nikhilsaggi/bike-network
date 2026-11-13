@@ -71,7 +71,7 @@ def page() -> str:
     return (
         '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
-        '<meta name="description" content="Every NYC street costed by cycling stress, a year of '
+        '<meta name="description" content="Every NYC street costed by how stressful it is to ride, a year of '
         'Citi Bike trips routed over it, and where new protected lanes would help most.">'
         f"</head><body>\n{body}\n</body></html>\n"
     )

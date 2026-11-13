@@ -225,29 +225,35 @@ def test_a_mid_block_node_takes_the_nearest_cross_street_along_its_own_street():
     assert lone[1] == "One St"
 
 
-def test_distinct_sorts_by_share_saved_and_lists_one_of_each_alike_pair():
+def test_distinct_sorts_by_cost_saved_and_lists_long_moved_unlike_trips():
     _, edges = network()
     ex = pd.DataFrame(
         {
-            "o": [1, 3, 5],
-            "d": [3, 1, 6],
-            "trips": [10.0, 7.0, 4.0],
-            "cost_today": [3000.0, 3000.0, 1060.0],
-            "cost_plan": [2000.0, 1500.0, 1000.0],
+            "o": [1, 3, 5, 2],
+            "d": [3, 1, 6, 3],
+            "trips": [10.0, 4.0, 40.0, 30.0],
+            "cost_today": [3000.0, 3000.0, 1060.0, 1500.0],
+            "cost_plan": [2000.0, 1500.0, 1000.0, 1000.0],
             "today_edges": [
                 rows_of(edges, (3, "fwd"), (4, "fwd")),
                 rows_of(edges, (4, "rev"), (3, "rev")),
                 rows_of(edges, (6, "fwd")),
+                rows_of(edges, (2, "fwd")),
             ],
             "plan_edges": [
                 rows_of(edges, (1, "fwd"), (2, "fwd")),
                 rows_of(edges, (2, "rev"), (1, "rev")),
                 rows_of(edges, (6, "fwd")),
+                rows_of(edges, (2, "fwd")),
             ],
         }
     )
     got = effect.distinct(ex, edges)
-    assert got["o"].tolist() == [3, 1, 5]  # 50%, 33% and 6% of the stress saved
-    # 1 -> 3 rides the same streets as 3 -> 1, the other way, and saves less
-    assert got["listed"].tolist() == [True, False, True]
-    assert effect.distinct(ex, edges, overlap=1.0)["listed"].all()
+    # 15,000, 10,000, 6,000 and 2,400 cost-meters a year saved
+    assert got["o"].tolist() == [2, 1, 3, 5]
+    # 2 -> 3 and 5 -> 6 keep today's route; 3 -> 1 rides the streets of 1 -> 3 the other way
+    assert got["listed"].tolist() == [False, True, False, False]
+    loose = effect.distinct(ex, edges, overlap=1.0, min_m=0.0, min_moved=0.0)
+    assert loose["listed"].all()
+    # 1 -> 3 is 2 km today and with the plan
+    assert not effect.distinct(ex, edges, min_m=2500.0)["listed"].any()

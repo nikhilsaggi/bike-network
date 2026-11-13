@@ -338,7 +338,7 @@ every trip, for every stretch of a synthetic grid.
 
 5th Ave southbound, 48th St to 23rd St (2.0 km), on the 2025 trips:
 
-| | Stress saved, cost-km a year | Trips a day using it |
+| | Cost saved, cost-km a year | Trips a day using it |
 |---|---|---|
 | As one stretch | 741,000 | 5,000 |
 | Built, and every sampled trip re-routed | 741,500 | 5,000 |
@@ -397,7 +397,7 @@ half a cost-meter is rounding and is not counted.
 
 An 80 km build-out on the 2025 trips (`python -m bike_network corridors`)
 took 11 rounds, at prices that fell from 178,000 to 100,000 cost-m a year
-per new meter. It saves 10.4% of the stress on every Citi Bike trip, and
+per new meter. It saves 10.4% of the cost of every Citi Bike trip, and
 79,000 trips a day (65%) ride at least one new block. Of the new lane,
 27.5 km goes where there is none, 16.5 km makes a painted lane protected,
 11.2 km does the same for sharrows or a shared street, and 25.0 km runs
@@ -451,7 +451,7 @@ a corridor as "this street or the next one over".
 The build-out scores 40,000 sampled station pairs. `python -m bike_network
 effect` routes every one of the year's 44.7 million trips again with the
 plan's blocks protected and sets each beside its route today. It agrees with
-the sample: 10.2% of the stress saved (10.4% on the sample), and 78,700 trips
+the sample: 10.2% of the cost saved (10.4% on the sample), and 78,700 trips
 a day (64%) gain. The trips are held fixed, the same riders between the same
 stations, so this is where they would ride and what it would cost them, not
 how many more would ride.
@@ -472,7 +472,7 @@ shrinks by about a fifth, 2.2 million km a year.
 
 - **A map of where trips move misses a third of the riders who gain.** 34%
   of the trips that gain keep today's route to within a meter: the lane goes
-  on the street they already ride. They get 19% of the stress saved. The
+  on the street they already ride. They get 19% of the cost saved. The
   facility mix of the trip-km counts them; a map of trips a day with the
   plan minus today does not.
 - **Riders move between parallel streets.** The streets that lose the most
@@ -483,20 +483,24 @@ shrinks by about a fifth, 2.2 million km a year.
   Changes of under 20 trips a day hold 4% of the riding that moves; the map
   leaves them faint.
 - **The gain is uneven.** Counting a trip at both its stations, the median
-  station's trips lose 3.8% of their stress. Of the stations with at least
+  station's trips lose 3.8% of their cost. Of the stations with at least
   100 trips a day, the ten that gain most, 25 to 30%, are on the Upper East
   Side, around Park Ave South and Murray Hill, in Tribeca (two on N Moore
   St) and at 7th Ave and W 31st St.
 
 Each corridor gets one example trip: among the 20,000 station pairs that gain
-the most (trips times stress saved), the one scoring highest on that gain
+the most (trips times cost saved), the one scoring highest on that gain
 times the share of the corridor's new lane its new route rides. 214 trips
 cover 263 of the 269 corridors; a trip can be the example for several. The
 map draws each one's route today and with the plan. Its list sorts them by
-the share of their stress saved and leaves out a trip when more than 30% of
-the shorter one's streets, either way and on either route, are shared with
-one above it: neighboring corridors on one avenue often pick much the same
-trip. That lists 105 of the 214.
+the cost they save (trips times the drop in cost per trip), so a busy,
+long trip outranks a short one that rides nothing but new lane. It leaves
+out a trip when either route is under 1.2 km; when less than 30% of its
+route with the plan is on streets today's route does not ride, since a lane
+on the street a trip already takes shows little on a map of both routes;
+and when more than 30% of the shorter one's streets, either way and on
+either route, are shared with one above it: neighboring corridors on one
+avenue often pick much the same trip. That lists 52 of the 214.
 
 ### Limits
 
@@ -509,7 +513,7 @@ trip. That lists 105 of the 214.
 - **The only cost is length.** Street width, parking, bus lanes and
   loading are not in it, so a corridor here is where riders would gain, not
   a design.
-- The demand is Citi Bike's, and stress is route choice, not crash risk
+- The demand is Citi Bike's, and cost is route choice, not crash risk
   (section 6).
 
 ## 8. Reproducing it

@@ -81,7 +81,7 @@ it decided and what it could not are in
 
 `python -m bike_network candidates` scores every block that could take a
 protected facility (a lane where there is none, a contraflow lane against
-one-way traffic on an undivided street, a riding path on a walkway) by the stress a year of Citi
+one-way traffic on an undivided street, a riding path on a walkway) by the cost a year of Citi
 Bike trips would save if it had one, including trips that avoid the block
 today. It scores two independent samples of 40,000 station pairs and reports
 how far their rankings agree, then writes `candidates.parquet`.
@@ -93,7 +93,7 @@ instead: consecutive blocks of one street in one direction, which a trip can
 join at any intersection and leave at any later one. It then spends a budget
 of new protected lane greedily (`--budget-km`, default 80, about NYC's yearly
 Streets Plan target). Each round builds the stretches that save the most
-stress per new meter, re-routes, and scores every street again, about 90
+cost per new meter, re-routes, and scores every street again, about 90
 seconds a round. It writes `corridors.parquet` (one row per corridor, in
 build order), `corridor_edges.parquet` (its blocks) and `corridors.json` (the
 plan's totals), and `viz` then adds a New corridors view to the map. The
@@ -106,14 +106,14 @@ one of the year's trips routed again with the plan built, set beside
 today's routes. It writes `plan_flows.parquet` (trips a year on each
 directed edge, as `flows.parquet`), `plan_routes.parquet` (each station
 pair's route), `plan_stations.parquet` (each station's trips and the share
-of their stress saved), `plan_examples.parquet` (one real trip per corridor,
+of their cost saved), `plan_examples.parquet` (one real trip per corridor,
 both routes) and `plan_effect.json` (the totals). The map's New corridors
 mode then has two more views: Where riders go (trips a day with the plan
 minus today, or today's map and the plan's side by side; the facility mix
 of the trip-km; the streets riders move to and leave; and the example trips
-drawn both ways, sorted by the share of stress saved, leaving out any that
-mostly repeats one above it) and Who gains (each station by the share of
-its trips' stress saved). The trips are held fixed:
+drawn both ways, sorted by the cost they save, leaving out short trips,
+trips that keep today's route, and any that mostly repeats one above it) and Who gains (each station by the share of
+its trips' cost saved). The trips are held fixed:
 the same riders between the same stations, so the views show where they
 would ride, not how many more would.
 

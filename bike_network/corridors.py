@@ -465,7 +465,7 @@ def stretch_edges(runs: Runs, run: int, s: int, t: int) -> np.ndarray:
 def stretch_value(
     runs: Runs, run: int, s: int, t: int, dist: Distances
 ) -> tuple[float, float, float]:
-    """Stress saved and trips (a year) by protecting nodes ``s`` to ``t``, and its blocks' savings one at a time."""
+    """Cost saved and trips (a year) by protecting nodes ``s`` to ``t``, and its blocks' savings one at a time."""
     a = runs.ptr[run]
     k = t - s + 1
     saved, trips = np.zeros((k, k)), np.zeros((k, k))

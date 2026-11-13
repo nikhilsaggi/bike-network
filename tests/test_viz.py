@@ -312,3 +312,20 @@ def test_effect_trips_and_example_routes_land_on_their_own_direction():
     # a station with under a trip a day is left out
     assert e["stations"]["n"] == [1, 2]
     assert e["stations"]["name"][1] == "St 2 & St 3"
+
+
+def test_busiest_facilities_list_their_own_edges():
+    gseg, fac, edges, ids, _ = plan_payload_inputs()
+    row = {
+        (s, d): i for i, (s, d) in enumerate(zip(edges["segment_id"], edges["dir"], strict=True))
+    }
+    flows = edges[["segment_id", "dir", "street", "facility", "mode", "length_m"]].assign(
+        boro=1, trips=0.0, trips_shortest=0.0, facility="none"
+    )
+    for s, d in ((ids[0], "fwd"), (ids[2], "rev")):
+        flows.loc[row[(s, d)], ["facility", "trips"]] = ["protected", 365 * 10]
+    flows.loc[row[(ids[1], "fwd")], "trips"] = 365 * 99  # busy, but no lane
+    payload = viz.export(gseg, fac, edges, flows=flows)
+    seg_of = {payload["names"][payload["name"][s]]: s for s in range(payload["n"])}
+    top = {r["street"]: r["edges"] for r in payload["flow"]["top"]}
+    assert top == {"STREET 1": [2 * seg_of["STREET 1"]], "STREET 3": [2 * seg_of["STREET 3"] + 1]}
