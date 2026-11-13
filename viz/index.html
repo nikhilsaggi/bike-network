@@ -369,7 +369,6 @@ h2.later { margin-top: 18px; }
 
   <section class="cost-only" aria-labelledby="hist-h">
     <h2 id="hist-h">Ridden miles by cost</h2>
-    <div class="headline"><strong id="kmRide">–</strong><span>miles of one-way travel ridden</span></div>
     <div class="sub" id="meanLine"></div>
     <svg id="hist" viewBox="0 0 328 132" role="img" aria-label="Histogram of ridden miles by cost factor"></svg>
     <div class="hist-tip num" id="histTip">Hover a bar for its miles</div>
@@ -594,7 +593,6 @@ h2.later { margin-top: 18px; }
     if (mode === "trips") paintTrips();
     else if (mode === "plan") paintPlan();
     version++;
-    document.getElementById("kmRide").textContent = Math.round(mi(kmRide)).toLocaleString();
     document.getElementById("meanLine").textContent =
       "Average " + (weighted / kmRide).toFixed(2) + "× length · quiet street " + quietFactor().toFixed(2) + "×";
     drawLegend();
