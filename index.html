@@ -1,0 +1,1950 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="description" content="Every NYC street costed by how stressful it is to ride, a year of Citi Bike trips routed over it, and where new protected lanes would help most."></head><body>
+<title>NYC Bike Cost Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&family=Overpass+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a control rail beside a full-bleed street map; on a phone the map sits on top and the rail scrolls below it.
+   Type: Overpass, the open cut of the Highway Gothic lettering on US road signs, with its mono for figures. */
+:root {
+  --plane: #f3f3ef;
+  --surface: #fafaf7;
+  --ink: #161614;
+  --ink-2: #4b4a45;
+  --ink-3: #75736c;
+  --rule: #dcdad2;
+  --accent: #1c5cab;
+  --line-blue: #1c5cab;
+  --line-mid: #aeaca4;
+  --line-red: #b42b2a;
+  --line-faint: #dfddd6;
+  --line-walk: #161614;
+  --flow-lo: #b7d3f6;
+  --flow-hi: #0d366b;
+  --plan-new: #d55e00;
+  --plan-old: #1c5cab;
+  /* bike facilities, the standard colors; an example trip's routes use them */
+  --fac-separated: #0c9252;
+  --fac-painted: #01b8ee;
+  --fac-shared: #b35fa6;
+  --font-ui: "Overpass", "Helvetica Neue", Arial, sans-serif;
+  --font-num: "Overpass Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --rail: 360px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --plane: #0f0f0e; --surface: #161615; --ink: #efeee9; --ink-2: #c1bfb8; --ink-3: #8e8c85;
+    --rule: #2f2e2b; --accent: #6da7ec; --line-blue: #6da7ec; --line-mid: #5c5b56;
+    --line-red: #f07a72; --line-faint: #2b2a27; --line-walk: #f6f5f0; color-scheme: dark;
+    --flow-lo: #184f95; --flow-hi: #cde2fb; --plan-new: #dd7330; --plan-old: #4f8bd6;
+  }
+}
+:root[data-theme="dark"] {
+  --plane: #0f0f0e; --surface: #161615; --ink: #efeee9; --ink-2: #c1bfb8; --ink-3: #8e8c85;
+  --rule: #2f2e2b; --accent: #6da7ec; --line-blue: #6da7ec; --line-mid: #5c5b56;
+  --line-red: #f07a72; --line-faint: #2b2a27; --line-walk: #f6f5f0; color-scheme: dark;
+  --flow-lo: #184f95; --flow-hi: #cde2fb; --plan-new: #dd7330; --plan-old: #4f8bd6;
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body {
+  background: var(--plane); color: var(--ink); font-family: var(--font-ui); font-size: 14px;
+  display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); overflow: hidden;
+}
+#rail {
+  overflow-y: auto; border-right: 1px solid var(--rule); min-width: 0;
+  padding-block: 20px 28px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 16px;
+  display: flex; flex-direction: column; gap: 22px;
+}
+#rail > * { flex-shrink: 0; } /* a scrolling flex column would otherwise squash its children */
+#map { position: relative; background: var(--surface); min-width: 0; grid-column: 2; grid-row: 1; }
+#rail { grid-column: 1; grid-row: 1; }
+#map > canvas { position: absolute; inset: 0; z-index: 1; }
+#map > #card, #map > .hint, #map > #status { z-index: 2; }
+@media (max-width: 720px) {
+  body { display: block; overflow: auto; }
+  #map { height: 58vh; }
+  #rail { border-right: 0; border-top: 1px solid var(--rule);
+    padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+}
+h1 { font-size: 22px; font-weight: 800; letter-spacing: 0.01em; margin: 0; text-wrap: balance; }
+.lede { margin: 6px 0 0; color: var(--ink-2); line-height: 1.5; max-width: 60ch; }
+.src { margin: 6px 0 0; color: var(--ink-3); font-size: 12px; }
+.src a { color: inherit; text-underline-offset: 2px; }
+.src a:hover { color: var(--ink); }
+h2 {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--ink-3); margin: 0 0 10px;
+}
+section { display: flex; flex-direction: column; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+/* legend */
+.ramp { height: 10px; border-radius: 2px; }
+.ramp-ticks { position: relative; height: 16px; margin-top: 4px; font-size: 11px; color: var(--ink-3); }
+.ramp-ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.ramp-ticks span:first-child { transform: none; }
+.ramp-ticks span:last-child { transform: translateX(-100%); }
+.ramp-ends { position: relative; height: 16px; font-size: 12px; color: var(--ink-2); }
+.ramp-ends span { position: absolute; white-space: nowrap; }
+.ramp-ends span:first-child { left: 0; }
+.ramp-ends span:last-child { right: 0; }
+.ramp-ticks span.at-quiet { transform: none; }
+.ramp-ticks span.c { transform: translateX(-50%); }
+.key { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px 10px; align-items: center; margin-top: 12px; }
+.key i { display: block; height: 0; border-top-style: solid; }
+.key .val { color: var(--ink-2); font-size: 12px; }
+.key .newlane { border-top-width: 4px; border-color: var(--plan-new); }
+.key .oldlane { border-top-width: 2px; border-color: var(--plan-old); }
+.key .newcontra { border-top-width: 4px; border-top-style: dashed; border-color: var(--plan-new); }
+#corKinds { margin-top: 8px; }
+
+/* headline */
+.headline { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.headline strong { font-family: var(--font-num); font-size: 26px; font-weight: 600; }
+.headline span { color: var(--ink-2); }
+.sub { color: var(--ink-3); font-size: 12px; margin-top: 4px; }
+
+/* histogram */
+#hist { width: 100%; height: auto; display: block; margin-top: 10px; overflow: visible; }
+#hist text { fill: var(--ink-3); font-family: var(--font-num); font-size: 10px; }
+#hist .axis { stroke: var(--rule); }
+#hist .brk { stroke: var(--plane); stroke-width: 2.5; }
+#hist .walkmark { stroke: var(--ink); stroke-dasharray: 3 3; }
+#hist .walklabel { fill: var(--ink); }
+#hist rect.hit { fill: transparent; cursor: default; }
+.hist-tip { min-height: 18px; font-size: 12px; color: var(--ink-2); margin-top: 6px; }
+button.link { border: 0; background: none; padding: 0; font: inherit; color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
+/* knobs */
+.group { display: flex; flex-direction: column; gap: 12px; }
+.group + .group { margin-top: 18px; }
+.group h3 { font-size: 13px; font-weight: 600; margin: 0; color: var(--ink); }
+.group h3 + .note { margin: -6px 0 0; }
+.knob { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: baseline; }
+.knob label { color: var(--ink-2); font-size: 13px; }
+.knob output { font-family: var(--font-num); font-size: 13px; color: var(--ink); }
+.knob output.changed { color: var(--accent); font-weight: 600; }
+.knob input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); margin: 2px 0 0; }
+.buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+button {
+  font: 600 13px var(--font-ui); color: var(--ink); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 4px; padding: 7px 12px; cursor: pointer;
+}
+button:hover { border-color: var(--ink-3); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#copied { font-size: 12px; color: var(--ink-2); align-self: center; }
+#configText { width: 100%; min-height: 150px; font: 12px var(--font-num); color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; margin-top: 8px; }
+
+/* detail card */
+#card {
+  position: absolute; z-index: 2; background: var(--plane); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 12px 14px; width: min(300px, calc(100% - 32px));
+  left: max(16px, env(safe-area-inset-left, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 4px 18px rgb(0 0 0 / 0.12);
+}
+#card h4 { margin: 0 24px 2px 0; font-size: 15px; font-weight: 800; }
+#card .dir { color: var(--ink-3); font-size: 12px; margin-bottom: 8px; }
+#card dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; font-size: 12px; }
+#card dt { color: var(--ink-3); }
+#card dt.part { padding-left: 10px; }
+#card dd { margin: 0; text-align: right; font-family: var(--font-num); }
+#card .verdict { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--rule); font-size: 13px; }
+#card .x { position: absolute; top: 6px; right: 6px; border: 0; background: none; padding: 4px 8px; font-size: 16px; color: var(--ink-3); }
+#card .dirs { margin: 4px 0 10px; }
+#card .dirs button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; min-width: 0; }
+#card .dirs small { font: 400 11px var(--font-num); opacity: 0.8; }
+#card .dirs button:disabled { cursor: default; color: var(--ink-3); }
+#status {
+  position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-3); font-size: 13px;
+  pointer-events: none; text-align: center; padding: 16px;
+}
+.hint { position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); top: 12px; font-size: 11px; color: var(--ink-3); background: var(--plane); padding: 3px 7px; border-radius: 3px; border: 1px solid var(--rule); }
+.seg { display: flex; border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; }
+.seg button { flex: 1; border: 0; border-radius: 0; background: var(--surface); color: var(--ink-2); padding: 7px 8px; }
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--plane); }
+.seg.small button { font-size: 12px; padding: 5px 6px; }
+.note { font-size: 12px; color: var(--ink-3); line-height: 1.45; margin: 8px 0 0; }
+.note b { color: var(--ink-2); font-weight: 600; }
+#about-h + .note { margin-top: 0; }
+.note.steps { padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.note.formula { color: var(--ink); font-size: 12px; padding: 6px 8px; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; }
+#flowRamp { height: 10px; border-radius: 2px; margin-top: 12px; }
+.share { width: 100%; border-collapse: collapse; font-size: 12px; }
+.share th { text-align: right; font-weight: 600; color: var(--ink-3); padding: 0 0 6px; font-size: 11px; }
+.share th:first-child { text-align: left; }
+.share th + th { padding-left: 12px; white-space: nowrap; }
+.share td { padding: 3px 0; }
+.share td.v { text-align: right; width: 22%; font-family: var(--font-num); }
+/* stacked share bars, one per routing, over a key table */
+.mix { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 10px; align-items: center; margin-bottom: 12px; }
+.mix > span { font-size: 12px; color: var(--ink-2); }
+.mix .stack { display: flex; height: 22px; border-radius: 3px; overflow: hidden; background: var(--rule); }
+.mix .stack i { display: flex; align-items: center; justify-content: center; font: 600 10px var(--font-num); font-style: normal; white-space: nowrap; overflow: hidden; }
+.mix .stack i + i { box-shadow: inset 1px 0 var(--plane); }
+.share .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; vertical-align: -1px; }
+.f-separated { background: #0c9252; color: #fff; }
+.f-painted { background: #01b8ee; color: #10222b; }
+.f-shared { background: #b35fa6; color: #fff; }
+.f-none { background: #9a978f; color: #161614; }
+.f-walked { background: var(--ink); color: var(--plane); }
+#corList { margin-top: 8px; }
+.ranked { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ranked button {
+  width: 100%; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; align-items: baseline;
+  text-align: left; border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; background: none;
+  padding: 7px 0; font-weight: 400;
+}
+.ranked button:hover .tname { text-decoration: underline; }
+.ranked button[aria-pressed="true"] .tname { font-weight: 600; }
+.ranked button[aria-pressed="true"] .rank { color: var(--ink); }
+.ranked .rank { color: var(--ink-3); font-family: var(--font-num); font-size: 12px; }
+.ranked .tname { min-width: 0; }
+.ranked .tname small { display: block; color: var(--ink-3); font-size: 11px; }
+.ranked .tv { font-family: var(--font-num); font-size: 12px; text-align: right; }
+.ranked .tv small { display: block; color: var(--ink-3); font-size: 11px; }
+/* what the plan changes */
+h2.later { margin-top: 18px; }
+.key .nogain { width: 10px; height: 10px; border: 0; border-radius: 50%; background: var(--line-mid); justify-self: center; }
+.key .newlane.thin { border-top-width: 2px; }
+.cmp tr.sub td:first-child { padding-left: 16px; }
+.cmp .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.cmp .sw.separated { background: var(--fac-separated); }
+.cmp .sw.painted { background: var(--fac-painted); }
+.cmp .sw.shared { background: var(--fac-shared); }
+.cmp .sw.none { background: var(--ink-3); }
+.cmp .sw.walked { background: var(--line-mid); }
+.share tr.sep td { border-top: 1px solid var(--rule); padding-top: 6px; }
+#card .key { margin-top: 10px; font-size: 12px; }
+table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
+.cmp th { font-weight: 600; font-size: 11px; color: var(--ink-3); text-align: right; padding: 0 0 4px 8px; }
+.cmp td { text-align: right; font-family: var(--font-num); padding: 2px 0 2px 8px; }
+.cmp th:first-child, .cmp td:first-child { text-align: left; padding-left: 0; font-family: var(--font-ui); color: var(--ink-3); }
+.cmp tr.total td { border-top: 1px solid var(--rule); padding-top: 4px; color: var(--ink); }
+/* an example trip's detail, under its row in the list */
+.exdetail { padding: 10px 0 12px 30px; border-bottom: 1px solid var(--rule); font-size: 12px; }
+.exdetail .ends { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; color: var(--ink-2); }
+.exdetail .ends span { display: inline-flex; align-items: center; gap: 6px; }
+.exdetail .dot { width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; border: 2px solid var(--ink); }
+.exdetail .dot.end { background: var(--ink); }
+.exdetail .verdict { margin-top: 10px; color: var(--ink-2); line-height: 1.45; }
+.ranked li.open > button { border-bottom: 0; }
+#card .seetrip { margin-top: 10px; width: 100%; }
+#shiftRamp { margin-top: 12px; }
+#planPane { position: absolute; z-index: 1; top: 0; bottom: 0; left: 50%; right: 0; border-left: 1px solid var(--rule); }
+#map.stacked #planPane { left: 0; top: 50%; border-left: 0; border-top: 1px solid var(--rule); }
+.pane-label {
+  position: absolute; z-index: 2; top: 12px; left: 12px; font-size: 11px; font-weight: 600; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--ink-2); background: var(--plane); padding: 3px 7px; border-radius: 3px; border: 1px solid var(--rule);
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div id="map">
+  <div id="status">Loading the street network…</div>
+  <div class="hint" id="hint">Click a street</div>
+  <div id="card" hidden></div>
+</div>
+
+<aside id="rail">
+  <header>
+    <h1>NYC Bike Cost Map</h1>
+    <p class="lede">Every street is drawn once per direction, on the rider's right-hand side.
+      Color is how much a mile of riding costs, against a quiet two-way street.</p>
+    <p class="src" id="src">LION street map · NYC DOT bike routes</p>
+    <p class="src"><a href="https://github.com/nikhilsaggi/bike-network/blob/main/docs/methodology.md" target="_blank" rel="noopener">How it is built</a>
+      · <a href="https://github.com/nikhilsaggi/bike-network" target="_blank" rel="noopener">Source</a></p>
+  </header>
+
+  <div class="seg" role="group" aria-label="What the map shows">
+    <button type="button" id="modeCost" aria-pressed="true">Cost</button>
+    <button type="button" id="modeTrips" aria-pressed="false">Citi Bike trips</button>
+    <button type="button" id="modePlan" aria-pressed="false">New corridors</button>
+  </div>
+
+  <section class="trips-only" aria-labelledby="flow-h" hidden>
+    <h2 id="flow-h">Trips a day</h2>
+    <div class="seg small" role="group" aria-label="Which routing">
+      <button type="button" data-flow="safest" aria-pressed="true">Safest routes</button>
+      <button type="button" data-flow="shortest" aria-pressed="false">Shortest routes</button>
+      <button type="button" data-flow="diff" aria-pressed="false">Difference</button>
+    </div>
+    <div id="flowRamp"></div>
+    <div class="ramp-ticks num" id="flowTicks"></div>
+    <div class="ramp-ends" id="flowEnds"></div>
+    <p class="note" id="flowNote"></p>
+  </section>
+
+  <section class="trips-only" aria-labelledby="share-h" hidden>
+    <h2 id="share-h">Where the trip-miles go</h2>
+    <div class="mix" id="shareMix"></div>
+    <table class="share" id="share"></table>
+  </section>
+
+  <section class="trips-only" aria-labelledby="top-h" hidden>
+    <h2 id="top-h">Busiest bike facilities</h2>
+    <ol id="top" class="ranked"></ol>
+    <p class="note">Trip-miles a year on the facility, and the busiest block's trips a day. Select one to go to it and light its blocks; select it again or press Escape to clear.</p>
+  </section>
+
+  <section class="plan-only" aria-labelledby="plan-h" hidden>
+    <h2 id="plan-h">Build-out</h2>
+    <div class="headline"><strong id="planKm">–</strong><span id="planKmLabel">miles of new protected lane</span></div>
+    <div class="sub" id="planLine"></div>
+    <div class="key plan-only" data-pv="corridors">
+      <i class="newlane"></i><span>New protected lane, with traffic</span><span class="val num" id="planNewKm"></span>
+      <i class="newcontra"></i><span>New lane against one-way traffic</span><span class="val num" id="planContraKm"></span>
+      <i class="oldlane"></i><span>Protected today</span><span class="val"></span>
+    </div>
+    <p class="note plan-only" data-pv="corridors">Picked greedily. Each round builds the stretches that save the most cost per new foot, then scores every street again with them in place, so a corridor's value counts the ones before it.</p>
+  </section>
+
+  <div class="seg small plan-only" id="planViews" role="group" aria-label="What the plan view shows" hidden>
+    <button type="button" data-pview="corridors" aria-pressed="true">Corridors</button>
+    <button type="button" data-pview="riders" aria-pressed="false">Where riders go</button>
+    <button type="button" data-pview="stations" aria-pressed="false">Who gains</button>
+  </div>
+
+  <section class="plan-only" data-pv="riders" aria-labelledby="shift-h" hidden>
+    <h2 id="shift-h">Change in trips a day, each direction</h2>
+    <div class="seg small" role="group" aria-label="How to compare today and the plan">
+      <button type="button" data-compare="change" aria-pressed="true">Change</button>
+      <button type="button" data-compare="split" aria-pressed="false">Side by side</button>
+    </div>
+    <div id="shiftRamp" class="ramp"></div>
+    <div class="ramp-ticks num" id="shiftTicks"></div>
+    <div class="ramp-ends" id="shiftEnds"><span>Fewer with improvements</span><span>More</span></div>
+    <p class="note" id="shiftNote"></p>
+  </section>
+
+  <section class="plan-only" data-pv="riders" aria-labelledby="gain-h" hidden>
+    <h2 id="gain-h">What changes for riders</h2>
+    <div class="mix" id="gainMix"></div>
+    <table class="share" id="gainTable"></table>
+    <p class="note" id="gainNote"></p>
+  </section>
+
+  <section class="plan-only" data-pv="riders" aria-labelledby="ex-h" hidden>
+    <h2 id="ex-h">Example trips</h2>
+    <ol id="exList" class="ranked"></ol>
+    <div class="buttons"><button type="button" id="exMore" hidden></button></div>
+    <p class="note" id="exNote"></p>
+  </section>
+
+  <section class="plan-only" data-pv="riders" aria-labelledby="moves-h" hidden>
+    <h2 id="moves-h">Streets riders move to</h2>
+    <ol id="joinList" class="ranked"></ol>
+    <h2 id="leave-h" class="later">Streets riders leave</h2>
+    <ol id="leaveList" class="ranked"></ol>
+    <p class="note">Net change in trip-miles a day along the street, both directions. Select one to go to it.</p>
+  </section>
+
+  <section class="plan-only" data-pv="stations" aria-labelledby="st-h" hidden>
+    <h2 id="st-h">Cost saved on a station's trips</h2>
+    <div id="stRamp" class="ramp"></div>
+    <div class="ramp-ticks num" id="stTicks"></div>
+    <div class="key">
+      <i class="nogain"></i><span>No trip gains</span><span class="val"></span>
+      <i class="newlane thin"></i><span>New protected lane</span><span class="val"></span>
+    </div>
+    <p class="note" id="stNote"></p>
+  </section>
+
+  <section class="plan-only" data-pv="stations" aria-labelledby="sttop-h" hidden>
+    <h2 id="sttop-h">Stations that gain most</h2>
+    <ol id="stList" class="ranked"></ol>
+    <p class="note" id="stListNote"></p>
+  </section>
+
+  <section class="plan-only" data-pv="corridors" aria-labelledby="cor-h" hidden>
+    <h2 id="cor-h">Corridors</h2>
+    <div class="seg small" role="group" aria-label="Which corridors">
+      <button type="button" data-kind="all" aria-pressed="true">All</button>
+      <button type="button" data-kind="new" aria-pressed="false">New lanes</button>
+      <button type="button" data-kind="upgrade" aria-pressed="false">Upgrades</button>
+      <button type="button" data-kind="contraflow" aria-pressed="false">Contraflow</button>
+    </div>
+    <div class="seg small" id="corKinds" role="group" aria-label="Order corridors by">
+      <button type="button" data-sort="saved" aria-pressed="true">Most cost saved</button>
+      <button type="button" data-sort="km" aria-pressed="false">Longest</button>
+      <button type="button" data-sort="order" aria-pressed="false">Build order</button>
+    </div>
+    <ol id="corList" class="ranked"></ol>
+    <div class="buttons"><button type="button" id="corMore" hidden></button></div>
+    <p class="note" id="corNote"></p>
+  </section>
+
+  <section class="cost-only" aria-labelledby="about-h">
+    <h2 id="about-h">What “cost” means</h2>
+    <p class="note">Cost is how the router picks a route from A to B. Every block has a cost in each
+      direction, and the “safest” route is the one whose blocks add up to the least cost. A block's
+      cost is its length, scaled up by two things:</p>
+    <ol class="note steps">
+      <li><b>The traffic penalty</b>: how stressful the cars make the street. Any traffic adds a
+        base amount, and heavier traffic, a higher speed limit or a truck route add more
+        (the knobs below).</li>
+      <li><b>The bike lane</b>, if any: how much of that penalty it leaves. No lane leaves all of it,
+        sharrows and painted lanes some, a protected lane none.</li>
+    </ol>
+    <p class="note formula num">cost = length × (1 + traffic penalty × share the lane leaves)</p>
+    <p class="note">So a protected lane, or a street with no cars, costs exactly its length.</p>
+  </section>
+
+  <section class="cost-only" aria-labelledby="legend-h">
+    <h2 id="legend-h">Cost per mile ridden</h2>
+    <div class="ramp" id="ramp"></div>
+    <div class="ramp-ticks num" id="rampTicks"></div>
+    <div class="ramp-ends"><span>No traffic</span><span id="rampQuiet">Quiet street</span><span>Worst</span></div>
+  </section>
+
+  <section class="cost-only" aria-labelledby="hist-h">
+    <h2 id="hist-h">Cost distribution</h2>
+    <svg id="hist" viewBox="0 0 328 132" role="img" aria-label="Histogram of ridden miles by cost factor"></svg>
+    <div class="hist-tip num" id="histTip">Hover a bar for its miles</div>
+    <div class="sub" id="meanLine"></div>
+    <p class="note" id="histScaleNote"><span id="histScaleText"></span> <button type="button" class="link" id="histScale"></button></p>
+  </section>
+
+  <section class="cost-only" aria-labelledby="knobs-h">
+    <h2 id="knobs-h">Cost knobs</h2>
+    <div id="knobs"></div>
+    <div class="buttons">
+      <button type="button" id="reset">Reset to config.py</button>
+      <button type="button" id="copy">Copy as config.py</button>
+      <span id="copied" role="status"></span>
+    </div>
+    <textarea id="configText" readonly hidden aria-label="Settings as config.py"></textarea>
+  </section>
+</aside>
+
+<script src="https://cdn.jsdelivr.net/npm/deck.gl@9.3.11/dist.min.js"></script>
+<script src="cost.js"></script>
+<script>
+"use strict";
+(function () {
+  const RAMP_MAX = 3.5;        // factor at which the red end saturates
+  const HIST_MAX = 6;          // histogram's last bin is "6 and over"
+  const HIST_STEP = 0.1;
+  // Each direction is drawn this many of its own widths to the right of the
+  // street, opening a gap between the two as the map zooms in.
+  const OFFSET_LO = 0.6, OFFSET_HI = 1.25;
+  const OFFSET_FROM = 13.5, OFFSET_TO = 16.5;
+  const ARROW_ZOOM = 15;       // every direction gets an arrowhead from here
+  const ARROW_AT = 0.62;       // along each block; the other way's lands at 0.38, so the pair never collide
+  const KNOCKOUT_PX = 7;       // a line this wide carries its arrowhead cut out of it, not on top
+  const MIN_PX = 0.6;          // the edges layer's widthMinPixels
+  const INIT_ZOOM = 11.6;
+  const BASE_ZOOM = 12;        // lines widen past this zoom, so blocks are easier to see and hit
+  const COARSE = window.matchMedia("(pointer: coarse)").matches;
+  const LIT = [255, 196, 0], CASING = [22, 22, 20];
+  let offsetExt, dashExt;      // made at boot, once deck.gl has loaded
+
+  const KNOBS = [
+    { group: "Traffic penalty, on any street with cars" },
+    { key: "traffic_base", label: "Any street with cars", min: 0, max: 1, step: 0.05 },
+    { key: "per_doubling", label: "Each doubling of traffic above a quiet street", min: 0, max: 2, step: 0.05 },
+    { key: "volume_ref", label: "A quiet street's traffic, vehicles a day one way", min: 400, max: 6000, step: 100, fmt: (v) => Math.round(v).toLocaleString() },
+    { key: "per_5_mph", label: "Each 5 mph over the 25 mph default", min: 0, max: 0.5, step: 0.05 },
+    { key: "truck_limited", label: "Truck route, limited local", min: 0, max: 1.5, step: 0.05 },
+    { key: "truck_local", label: "Truck route, local", min: 0, max: 1.5, step: 0.05 },
+    { key: "truck_through", label: "Truck route, through", min: 0, max: 1.5, step: 0.05 },
+    { group: "Share of that penalty a lane leaves" },
+    { key: "exposure_painted", label: "Painted lane", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
+    { key: "exposure_shared", label: "Sharrows or signed route", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
+    { group: "Walking the bike, × length", note: "A block's cost is capped at the walking cost, since on a dangerous enough road the cyclist would walk instead. Blocks that can't be ridden (e.g. against traffic, pedestrian-only) are always walked." },
+    { key: "walk_factor", label: "On a sidewalk", min: 1.5, max: 16, step: 0.5, fmt: (v) => v.toFixed(1) + "×" },
+    { key: "step_factor", label: "Up or down a step street", min: 2, max: 24, step: 0.5, fmt: (v) => v.toFixed(1) + "×" },
+  ];
+  // The data.json layout this page reads: FORMAT in bike_network/viz.py.
+  const DATA_FORMAT = 1;
+  const fmt2 = (v) => v.toFixed(2);
+  // Distances are meters in the data; the page shows US units.
+  const M_PER_MI = 1609.344, FT_PER_M = 3.28084;
+  const mi = (m) => m / M_PER_MI;
+  const ftText = (m) => Math.round(m * FT_PER_M).toLocaleString() + " ft";
+
+  let data, defaults, k, edges, edgeOf, segPaths, counted;
+  let factor, kind, colors, overlay = [];
+  let version = 0, deckgl, selected = null, widthScale = 1, offset = OFFSET_LO, zoomStep = null;
+  let arrowPos, arrowDir, arrowAngle, arrowSize, arrowOff, arrowRgba, arrowKey = null;
+  let arrowData = [], arrowBox = null;
+  let mode = "cost", flowView = "safest", histFull = false, lastHist, widths;
+  let planIndex = new Map(), selectedCorridor = null, corSort = "saved", corAll = false;
+  let corFilter = "all", planDashed = [], dashedAt = new Map();
+  // The plan's views: "corridors", "riders" (where trips go with it built) or "stations".
+  let planView = "corridors", selectedExample = null, selectedStation = null, exAll = false;
+  const NO_ROUTE = { today: [], plan: [], marks: { today: { arrows: [], ends: [] }, plan: { arrows: [], ends: [] } } };
+  let route = NO_ROUTE, stationObjs = [], exampleOf = new Map();
+  // The busiest facility picked from the Citi Bike trips list, and its lit edges.
+  let selectedFac = null, facEdges = [];
+  const EX_SHOWN = 8, ST_SHOWN = 8;
+  // "change" maps trips a day with the plan minus today; "split" puts today's
+  // map and the plan's side by side, the second in its own deck.gl pane.
+  let compare = "change", planDeck = null, paneExt = null, planColors, planWidths, shiftNotes = {};
+  const SPLIT_STACK_PX = 640;  // a map narrower than this stacks the two panes
+  const SAVED_MAX = 0.2;     // share of a station's cost saved at which its color saturates
+  const ST_LIST_MIN = 100;   // trips a day for a station to make the list
+  const SHIFT_FAINT = 20;    // a change of fewer trips a day than this is drawn faint
+  const COR_SHOWN = 25;
+  const FLOW_MAX = 3000;     // trips a day at which the trips ramp saturates
+  const DIFF_MAX = 1000;     // trips a day of difference at which it saturates
+  let palette;
+
+  // ---------- color ----------
+  function hexToRgb(h) {
+    const n = parseInt(h.trim().replace("#", ""), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  // Interpolate in OKLab so the ramp's middle stays gray rather than muddy.
+  function toLinear(c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+  function fromLinear(c) { const v = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055; return Math.round(Math.min(Math.max(v, 0), 1) * 255); }
+  function rgbToOklab([r, g, b]) {
+    r = toLinear(r); g = toLinear(g); b = toLinear(b);
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+  }
+  function oklabToRgb([L, a, b]) {
+    const l = Math.pow(L + 0.3963377774 * a + 0.2158037573 * b, 3);
+    const m = Math.pow(L - 0.1055613458 * a - 0.0638541728 * b, 3);
+    const s = Math.pow(L - 0.0894841775 * a - 1.291485548 * b, 3);
+    return [fromLinear(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+            fromLinear(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+            fromLinear(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s)];
+  }
+  function mix(a, b, t) { return oklabToRgb(a.map((v, i) => v + (b[i] - v) * t)); }
+
+  function readPalette() {
+    const cs = getComputedStyle(document.documentElement);
+    const get = (n) => hexToRgb(cs.getPropertyValue(n));
+    palette = {
+      blue: rgbToOklab(get("--line-blue")), mid: rgbToOklab(get("--line-mid")),
+      red: rgbToOklab(get("--line-red")), faint: get("--line-faint"), walk: get("--line-walk"),
+      flowLo: rgbToOklab(get("--flow-lo")), flowHi: rgbToOklab(get("--flow-hi")),
+      planNew: get("--plan-new"), planOld: get("--plan-old"), plane: get("--plane"),
+      blueHex: cs.getPropertyValue("--line-blue").trim(), midHex: cs.getPropertyValue("--line-mid").trim(),
+      redHex: cs.getPropertyValue("--line-red").trim(),
+      fac: {
+        separated: get("--fac-separated"), painted: get("--fac-painted"), shared: get("--fac-shared"),
+        none: get("--ink-3"), walked: get("--line-mid"),
+      },
+    };
+  }
+  // A street with cars and no lane: exposure 1, so its factor is 1 + the base penalty.
+  function quietFactor() { return 1 + k.traffic_base; }
+  function rampColor(f) {
+    const mid = quietFactor();
+    if (f <= mid) {
+      const t = mid > 1 ? Math.min(Math.max((f - 1) / (mid - 1), 0), 1) : 1;
+      return mix(palette.blue, palette.mid, t);
+    }
+    const t = RAMP_MAX > mid ? Math.min((f - mid) / (RAMP_MAX - mid), 1) : 1;
+    return mix(palette.mid, palette.red, t);
+  }
+
+  // ---------- data ----------
+  function decode(d) {
+    const n = d.n, q = d.quant, ox = d.origin[0], oy = d.origin[1];
+    segPaths = new Array(n);
+    let ci = 0, px = 0, py = 0;
+    for (let i = 0; i < n; i++) {
+      const nv = d.nv[i];
+      const path = new Float64Array(nv * 2);
+      let x = px + d.c[ci++], y = py + d.c[ci++];
+      px = x; py = y;
+      path[0] = (ox + x) / q; path[1] = (oy + y) / q;
+      for (let j = 1; j < nv; j++) {
+        x += d.c[ci++]; y += d.c[ci++];
+        path[2 * j] = (ox + x) / q; path[2 * j + 1] = (oy + y) / q;
+      }
+      segPaths[i] = path;
+    }
+    edges = [];
+    edgeOf = new Int32Array(2 * n).fill(-1);
+    for (let i = 0; i < n; i++) {
+      for (let dir = 0; dir < 2; dir++) {
+        if (BikeCost.edge(d.p[i], d.speed[i], d.vf[i], d.vr[i], dir, k) === null) continue;
+        let path = segPaths[i];
+        if (dir === 1) {
+          const r = new Float64Array(path.length), m = path.length / 2;
+          for (let j = 0; j < m; j++) { r[2 * j] = path[2 * (m - 1 - j)]; r[2 * j + 1] = path[2 * (m - 1 - j) + 1]; }
+          path = r;
+        }
+        edgeOf[2 * i + dir] = edges.length;
+        edges.push({ s: i, d: dir, path, i: edges.length });
+      }
+    }
+    placeArrows();
+  }
+
+  // Where each direction's arrowhead sits (ARROW_AT of the way along, by
+  // length) and which way it points there, as a unit vector east and north.
+  const COS_LAT = Math.cos(40.7 * Math.PI / 180);
+  function placeArrows() {
+    const m = edges.length;
+    arrowPos = new Float64Array(2 * m); arrowDir = new Float32Array(2 * m); arrowAngle = new Float32Array(m);
+    for (let i = 0; i < m; i++) {
+      const p = edges[i].path, nv = p.length / 2;
+      let total = 0;
+      for (let j = 1; j < nv; j++) total += Math.hypot((p[2 * j] - p[2 * j - 2]) * COS_LAT, p[2 * j + 1] - p[2 * j - 1]);
+      let goal = total * ARROW_AT;
+      for (let j = 1; j < nv; j++) {
+        const dx = (p[2 * j] - p[2 * j - 2]) * COS_LAT, dy = p[2 * j + 1] - p[2 * j - 1], len = Math.hypot(dx, dy);
+        if (goal > len && j < nv - 1) { goal -= len; continue; }
+        const t = len > 0 ? Math.min(goal / len, 1) : 0;
+        arrowPos[2 * i] = p[2 * j - 2] + (p[2 * j] - p[2 * j - 2]) * t;
+        arrowPos[2 * i + 1] = p[2 * j - 1] + (p[2 * j + 1] - p[2 * j - 1]) * t;
+        arrowDir[2 * i] = len > 0 ? dx / len : 0; arrowDir[2 * i + 1] = len > 0 ? dy / len : 0;
+        arrowAngle[i] = Math.atan2(dy, dx) * 180 / Math.PI;
+        break;
+      }
+    }
+  }
+
+  // ---------- model ----------
+  function recompute() {
+    const m = edges.length;
+    if (!factor || factor.length !== m) { factor = new Float32Array(m); kind = new Uint8Array(m); colors = new Uint8Array(m * 4); }
+    const hist = new Float64Array(Math.round((HIST_MAX - 1) / HIST_STEP) + 1);
+    let kmRide = 0, weighted = 0;
+    overlay = [];
+    for (let i = 0; i < m; i++) {
+      const e = edges[i], s = e.s;
+      const r = BikeCost.edge(data.p[s], data.speed[s], data.vf[s], data.vr[s], e.d, k);
+      const len = data.len[s];
+      let rgb;
+      if (r === null) { kind[i] = 2; factor[i] = 0; rgb = palette.faint; }
+      else if (r.ride) {
+        kind[i] = 0; factor[i] = r.factor; rgb = rampColor(r.factor);
+        kmRide += len; weighted += len * r.factor;
+        const b = Math.min(Math.floor((r.factor - 1 + 1e-9) / HIST_STEP), hist.length - 1);
+        hist[Math.max(b, 0)] += len;
+      } else if (r.canRide) {
+        kind[i] = 1; factor[i] = r.factor; rgb = palette.walk; overlay.push(e);
+      } else { kind[i] = 2; factor[i] = r.factor; rgb = palette.faint; }
+      colors[4 * i] = rgb[0]; colors[4 * i + 1] = rgb[1]; colors[4 * i + 2] = rgb[2]; colors[4 * i + 3] = 255;
+    }
+    if (mode === "trips") paintTrips();
+    else if (mode === "plan") paintPlan();
+    version++;
+    document.getElementById("meanLine").textContent =
+      "Average " + (weighted / kmRide).toFixed(2) + "× length · quiet street " + quietFactor().toFixed(2) + "×";
+    drawLegend();
+    drawHist(hist);
+    render();
+    if (selected) showCard(selected);
+  }
+
+  // ---------- legend + histogram ----------
+  // The legend gives each arm of the diverging ramp its own width: the blue arm
+  // spans 1.0 to a quiet street (often 0.2 wide), the red one the rest.
+  const BLUE_ARM = 0.25;
+  function legendPos(f) {
+    const mid = quietFactor();
+    if (f <= mid) return mid > 1 ? (f - 1) / (mid - 1) * BLUE_ARM : 0;
+    return BLUE_ARM + (1 - BLUE_ARM) * Math.min((f - mid) / Math.max(RAMP_MAX - mid, 1e-6), 1);
+  }
+  function drawLegend() {
+    const mid = quietFactor(), stops = [];
+    const add = (f) => { const c = rampColor(f); stops.push(`rgb(${c[0]} ${c[1]} ${c[2]}) ${(legendPos(f) * 100).toFixed(1)}%`); };
+    for (let i = 0; i <= 10; i++) add(1 + (mid - 1) * i / 10);
+    for (let i = 1; i <= 20; i++) add(mid + (RAMP_MAX - mid) * i / 20);
+    document.getElementById("ramp").style.background = `linear-gradient(to right, ${stops.join(", ")})`;
+    const ticks = [[1, "1.0"], [mid, mid.toFixed(2)]];
+    for (const f of [2, 2.5, 3]) if (f - mid > 0.3) ticks.push([f, f.toFixed(1)]);
+    ticks.push([RAMP_MAX, RAMP_MAX.toFixed(1) + "+"]);
+    document.getElementById("rampTicks").innerHTML = ticks.map(([f, label]) =>
+      `<span${f === mid ? ' class="at-quiet"' : ""} style="left:${(legendPos(f) * 100).toFixed(1)}%">${label}</span>`).join("");
+    document.getElementById("rampQuiet").style.left = (BLUE_ARM * 100) + "%";
+  }
+
+  function drawHist(hist) {
+    lastHist = hist;
+    const svg = document.getElementById("hist");
+    const W = 328, H = 132, top = 8, bottom = 22, left = 0;
+    const plotH = H - top - bottom, n = hist.length, bw = W / n;
+    // One bar (the quiet streets) can hold most of the network; scale to the
+    // next tallest so the rest can be read, and mark the clipped bar.
+    const sorted = Array.from(hist).sort((a, b) => b - a);
+    const tall = sorted[0] > 2.5 * sorted[1] && sorted[1] > 0, clip = tall && !histFull;
+    document.getElementById("histScaleNote").hidden = !tall;
+    document.getElementById("histScaleText").textContent = histFull ? "Drawn to true scale." : "The tallest bar is cut off so the rest can be read.";
+    document.getElementById("histScale").textContent = histFull ? "Zoom in" : "Show true scale";
+    const maxV = clip ? sorted[1] * 1.6 : Math.max(sorted[0], 1);
+    const x = (f) => left + (f - 1) / (HIST_MAX - 1 + HIST_STEP) * W;
+    let out = `<line class="axis" x1="0" x2="${W}" y1="${H - bottom + 0.5}" y2="${H - bottom + 0.5}"/>`;
+    for (let i = 0; i < n; i++) {
+      const v = hist[i], h = Math.min(v / maxV, 1) * plotH, f = 1 + (i + 0.5) * HIST_STEP;
+      const c = rampColor(Math.min(f, RAMP_MAX));
+      if (h > 0) {
+        const y = H - bottom - h, r = Math.min(2, h / 2);
+        out += `<path d="M${i * bw + 1},${H - bottom} V${y + r} q0,-${r} ${r},-${r} H${(i + 1) * bw - 1 - r} q${r},0 ${r},${r} V${H - bottom} Z" fill="rgb(${c[0]} ${c[1]} ${c[2]})"/>`;
+      }
+      if (v > maxV) {
+        const cx = (i + 0.5) * bw, km = Math.round(mi(v)).toLocaleString();
+        out += `<path class="brk" d="M${i * bw},${top + 14} l${bw},-4 M${i * bw},${top + 18} l${bw},-4"/>`;
+        out += `<text x="${cx + bw / 2 + 3}" y="${top + 8}" text-anchor="start">${km} mi</text>`;
+      }
+      out += `<rect class="hit" x="${i * bw}" y="${top}" width="${bw}" height="${plotH}" data-i="${i}"/>`;
+    }
+    for (const f of [1, 2, 3, 4, 5, 6]) {
+      const label = f === HIST_MAX ? HIST_MAX + "+" : f.toFixed(1);
+      const anchor = f === 1 ? "start" : f === HIST_MAX ? "end" : "middle";
+      out += `<text x="${f === HIST_MAX ? W : x(f)}" y="${H - 6}" text-anchor="${anchor}">${label}</text>`;
+    }
+    if (k.walk_factor < HIST_MAX) {
+      const wx = x(k.walk_factor);
+      out += `<line class="walkmark" x1="${wx}" x2="${wx}" y1="${top}" y2="${H - bottom}"/>`;
+      const left = wx > 70;
+      out += `<text class="walklabel" x="${left ? wx - 4 : wx + 4}" y="${top + 8}" text-anchor="${left ? "end" : "start"}">walk ${k.walk_factor.toFixed(1)}×</text>`;
+    }
+    svg.innerHTML = out;
+    svg.onmousemove = (ev) => {
+      const t = ev.target.closest("rect.hit");
+      const tip = document.getElementById("histTip");
+      if (!t) return;
+      const i = +t.dataset.i, lo = 1 + i * HIST_STEP;
+      const range = i === n - 1 ? `${lo.toFixed(1)}× and over` : `${lo.toFixed(1)}–${(lo + HIST_STEP).toFixed(1)}×`;
+      tip.textContent = `${range}: ${mi(hist[i]).toLocaleString(undefined, { maximumFractionDigits: 1 })} mi`;
+    };
+  }
+
+  // ---------- map ----------
+  // Twice as wide every four zoom levels past BASE_ZOOM, a third wider on touch screens.
+  function scaleFor(zoom) {
+    return Math.min(Math.max(Math.pow(2, (zoom - BASE_ZOOM) / 4), 1), 3) * (COARSE ? 1.35 : 1);
+  }
+  function offsetFor(zoom) {
+    const t = Math.min(Math.max((zoom - OFFSET_FROM) / (OFFSET_TO - OFFSET_FROM), 0), 1);
+    return OFFSET_LO + (OFFSET_HI - OFFSET_LO) * t;
+  }
+  // Lines follow the zoom in quarter-level steps, so a pinch does not rebuild
+  // them every frame. Returns whether anything changed.
+  function setZoom(zoom) {
+    const z = Math.round(zoom * 4) / 4;
+    if (z === zoomStep) return false;
+    zoomStep = z; widthScale = scaleFor(z); offset = offsetFor(z);
+    document.getElementById("hint").textContent =
+      (COARSE ? "Tap" : "Click") + " a street" + (z < ARROW_ZOOM ? " · zoom in to see each direction" : "");
+    return true;
+  }
+
+  // How edge i is drawn, overlays included: the width its offset is measured
+  // in, the width seen, and its color.
+  function look(i) {
+    if (mode === "cost") {
+      if (kind[i] === 1) return { c: 1.4, w: 3, rgb: palette.walk };
+      const w = kind[i] === 2 ? 0.8 : 1.4;
+      return { c: w, w, rgb: colors.subarray(4 * i, 4 * i + 3) };
+    }
+    const dash = mode === "plan" ? dashedAt.get(i) : undefined;
+    if (dash) return { c: dash.width, w: dash.width, rgb: dash.color };
+    return { c: widths[i], w: widths[i], rgb: colors.subarray(4 * i, 4 * i + 3) };
+  }
+
+  // An arrowhead pointing east, and the same with a rim, as masks deck.gl tints.
+  const ARROW_ICONS = {
+    arrow: { x: 0, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 32, mask: true },
+    halo: { x: 64, y: 0, width: 64, height: 64, anchorX: 32, anchorY: 32, mask: true },
+  };
+  let atlas;
+  function drawAtlas() {
+    const cv = document.createElement("canvas");
+    cv.width = 128; cv.height = 64;
+    const g = cv.getContext("2d");
+    const head = (x) => {
+      g.beginPath(); g.moveTo(x + 16, 12); g.lineTo(x + 52, 32); g.lineTo(x + 16, 52); g.lineTo(x + 25, 32); g.closePath();
+    };
+    g.fillStyle = g.strokeStyle = "#fff"; g.lineJoin = "round"; g.lineWidth = 12;
+    head(0); g.fill();
+    head(64); g.fill(); g.stroke();
+    return cv.toDataURL();
+  }
+  // Pixel offset from a block's centerline to the middle of edge i's line.
+  // Heading (u east, v north) has its right-hand side at (v, -u) east and
+  // north, which is (v, u) in an icon offset's east and south.
+  function sideOffset(i, center) { return [arrowDir[2 * i + 1] * center, arrowDir[2 * i] * center]; }
+  const centerOf = (c) => offset * Math.max(c * widthScale, MIN_PX);
+
+  // Arrowheads go only on blocks in and around the view, picked again once
+  // the map pans past that margin: drawing all of them slows every frame.
+  // Returns whether the set changed.
+  function cullArrows(viewState) {
+    if (zoomStep < ARROW_ZOOM) {
+      if (!arrowData.length) return false;
+      arrowData = []; arrowBox = null; return true;
+    }
+    const el = document.getElementById("map");
+    const [w, s, e, n] = new deck.WebMercatorViewport({ ...viewState, width: el.clientWidth, height: el.clientHeight }).getBounds();
+    const box = arrowBox;
+    if (box && w >= box[0] && s >= box[1] && e <= box[2] && n <= box[3]) return false;
+    const pw = (e - w) / 2, ph = (n - s) / 2;
+    arrowBox = [w - pw, s - ph, e + pw, n + ph];
+    const [bw, bs, be, bn] = arrowBox;
+    arrowData = edges.filter((x) => {
+      const lon = arrowPos[2 * x.i], lat = arrowPos[2 * x.i + 1];
+      return lon >= bw && lon <= be && lat >= bs && lat <= bn;
+    });
+    arrowKey = null;
+    return true;
+  }
+
+  // Each direction's arrowhead: on its line in the line's color, or cut out
+  // of a line too wide to show one on top.
+  function paintArrows() {
+    const key = `${version}|${widthScale}|${offset}`;
+    if (key === arrowKey) return;
+    arrowKey = key;
+    const m = edges.length;
+    if (!arrowSize || arrowSize.length !== m) {
+      arrowSize = new Float32Array(m); arrowOff = new Float32Array(2 * m); arrowRgba = new Uint8Array(4 * m);
+    }
+    for (const { i } of arrowData) {
+      const { c, w, rgb } = look(i), px = Math.max(w * widthScale, MIN_PX);
+      const knock = px >= KNOCKOUT_PX, col = knock ? palette.plane : rgb;
+      arrowSize[i] = knock ? Math.min(1.25 * px, 24) : Math.min(Math.max(4.2 * px, 11), 22);
+      arrowOff.set(sideOffset(i, centerOf(c)), 2 * i);
+      arrowRgba[4 * i] = col[0]; arrowRgba[4 * i + 1] = col[1]; arrowRgba[4 * i + 2] = col[2]; arrowRgba[4 * i + 3] = 255;
+    }
+  }
+
+  // The selected direction is lit and cased, so it reads on any color and
+  // apart from the hover highlight, with its arrowhead at every zoom.
+  function selectionLayers() {
+    if (!selected) return [];
+    const i = selected.i, { c, w } = look(i), center = centerOf(c);
+    const lit = Math.max(w * widthScale, MIN_PX) + 2, casing = lit + 3;
+    const line = (id, width, color) => new deck.PathLayer({
+      id, data: [selected], getPath: (e) => e.path, positionFormat: "XY", getColor: color, getWidth: width,
+      widthUnits: "pixels", getOffset: center / width, extensions: [offsetExt],
+      capRounded: true, jointRounded: true, pickable: false,
+    });
+    const at = [arrowPos[2 * i], arrowPos[2 * i + 1]], off = sideOffset(i, center);
+    return [
+      line("sel-casing", casing, CASING),
+      line("sel-lit", lit, LIT),
+      new deck.IconLayer({
+        id: "sel-arrow", data: [["halo", CASING], ["arrow", LIT]], iconAtlas: atlas, iconMapping: ARROW_ICONS,
+        getIcon: (a) => a[0], getColor: (a) => a[1], getPosition: () => at, getAngle: arrowAngle[i],
+        getPixelOffset: () => off, getSize: Math.min(Math.max(2.4 * lit, 16), 30), sizeUnits: "pixels",
+        billboard: false, pickable: false,
+      }),
+    ];
+  }
+
+  function layers() {
+    if (arrowData.length) paintArrows();
+    return [
+      new deck.PathLayer({
+        id: "edges", data: edges, getPath: (e) => e.path, positionFormat: "XY",
+        getColor: (e, { index }) => colors.subarray(4 * index, 4 * index + 4),
+        getWidth: (e, { index }) => (mode !== "cost" ? widths[index] : kind[index] === 2 ? 0.8 : 1.4),
+        widthUnits: "pixels", widthScale, widthMinPixels: MIN_PX, getOffset: offset, extensions: [offsetExt],
+        capRounded: false, jointRounded: false, pickable: true, autoHighlight: true,
+        highlightColor: LIT.concat(255),
+        updateTriggers: { getColor: version, getWidth: version },
+      }),
+      new deck.PathLayer({
+        id: "walkwin", data: mode === "cost" ? overlay : [], getPath: (e) => e.path, positionFormat: "XY",
+        getColor: palette.walk.concat(255), getWidth: 3, widthUnits: "pixels", widthScale,
+        getOffset: offset * 1.4 / 3, extensions: [offsetExt], pickable: false,
+        updateTriggers: { getColor: version },
+      }),
+      // A new lane against one-way traffic is dashed, so it never reads as the
+      // lane already running the other way beside it.
+      new deck.PathLayer({
+        id: "contraflow", data: mode === "plan" ? planDashed : [], getPath: (o) => o.e.path, positionFormat: "XY",
+        getColor: (o) => o.color, getWidth: (o) => o.width, widthUnits: "pixels", widthScale, getOffset: offset,
+        getDashArray: [2.5, 1.5], dashJustified: true, extensions: [dashExt],
+        capRounded: false, jointRounded: false, pickable: true, autoHighlight: true,
+        highlightColor: LIT.concat(255), updateTriggers: { getColor: version, getWidth: version },
+      }),
+      new deck.IconLayer({
+        id: "arrows", data: arrowData, iconAtlas: atlas, iconMapping: ARROW_ICONS, getIcon: () => "arrow",
+        getPosition: (e) => [arrowPos[2 * e.i], arrowPos[2 * e.i + 1]], getAngle: (e) => arrowAngle[e.i],
+        getSize: (e) => arrowSize[e.i], sizeUnits: "pixels",
+        getPixelOffset: (e) => [arrowOff[2 * e.i], arrowOff[2 * e.i + 1]],
+        getColor: (e) => arrowRgba.subarray(4 * e.i, 4 * e.i + 4),
+        billboard: false, pickable: false,
+        updateTriggers: { getSize: arrowKey, getPixelOffset: arrowKey, getColor: arrowKey },
+      }),
+      ...routeLayers("today", offsetExt),
+      ...facilityLayers(),
+      ...stationLayers(),
+      ...selectionLayers(),
+    ];
+  }
+  function render() {
+    if (deckgl) deckgl.setProps({ layers: layers() });
+    if (planDeck) planDeck.setProps({ layers: paneLayers() });
+  }
+
+  // ---------- selection ----------
+  // A click selects one direction of a block, and it stays selected until
+  // the card's × or Escape; in the corridors view it selects its corridor.
+  function select(e) {
+    selected = e;
+    if (mode === "plan") {
+      const c = planIndex.get(2 * e.s + e.d), ci = c ? c[0] : null;
+      if (ci !== selectedCorridor) { selectedCorridor = ci; paintPlan(); version++; }
+    }
+    render();
+    showCard(e);
+  }
+  function deselect() {
+    document.getElementById("card").hidden = true;
+    selected = null;
+    if (selectedCorridor !== null) { selectedCorridor = null; if (mode === "plan") { paintPlan(); version++; } }
+    render();
+  }
+
+  const COMPASS = ["North", "Northeast", "East", "Southeast", "South", "Southwest", "West", "Northwest"];
+  const POINTER = ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"];
+  // Which of the eight compass points a path heads toward, end to end.
+  function heading(path) {
+    const n = path.length;
+    const lat = (path[1] + path[n - 1]) / 2 * Math.PI / 180;
+    const dx = (path[n - 2] - path[0]) * Math.cos(lat), dy = path[n - 1] - path[1];
+    const deg = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+    return Math.round(deg / 45) % 8;
+  }
+  const bound = (h) => `<span aria-hidden="true">${POINTER[h]}</span> ${COMPASS[h]}bound`;
+  const esc = (s) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
+
+  // Hovering names the street and the direction a click would select.
+  function tooltip({ object }) {
+    if (!object || !window.matchMedia("(hover: hover)").matches) return null;
+    const e = object.e || object;
+    return {
+      html: `<b>${esc(data.names[data.name[e.s]] || "Unnamed")}</b> <span style="color:var(--ink-2)">${bound(heading(e.path))}</span>`,
+      style: {
+        backgroundColor: "var(--plane)", color: "var(--ink)", border: "1px solid var(--rule)", borderRadius: "4px",
+        padding: "4px 8px", font: "12px var(--font-ui)", boxShadow: "0 2px 8px rgb(0 0 0 / 0.12)",
+        marginLeft: "14px", marginTop: "14px", whiteSpace: "nowrap",
+      },
+    };
+  }
+
+  // What the direction switch shows for each way: its cost, or its trips a day.
+  function directionValue(e) {
+    if (mode === "plan") return "";
+    if (mode === "trips") {
+      const v = flowView === "diff" ? perDay(e, "t") - perDay(e, "s") : perDay(e, flowView === "safest" ? "t" : "s");
+      return `${flowView === "diff" && v > 0 ? "+" : ""}${v.toLocaleString()} trips/day`;
+    }
+    const r = BikeCost.edge(data.p[e.s], data.speed[e.s], data.vf[e.s], data.vr[e.s], e.d, k);
+    return r.ride ? `${fmt2(r.factor)}×` : `walked ${r.factor.toFixed(1)}×`;
+  }
+  // Both directions of the selected block, in a fixed order so they do not
+  // trade places; pressing the other one selects it.
+  function directions(e) {
+    const h = heading(e.path);
+    const one = (d) => {
+      const i = edgeOf[2 * e.s + d], hd = d === e.d ? h : (h + 4) % 8;
+      if (i < 0) return `<button type="button" disabled><span>${bound(hd)}</span><small>no bikes this way</small></button>`;
+      const v = directionValue(edges[i]);
+      return `<button type="button" data-edge="${i}" aria-pressed="${d === e.d}"><span>${bound(hd)}</span>${v ? `<small>${v}</small>` : ""}</button>`;
+    };
+    return `<div class="seg small dirs" role="group" aria-label="Direction">${one(0)}${one(1)}</div>`;
+  }
+  function wireCard(card) {
+    card.querySelector(".x").onclick = deselect;
+    card.querySelectorAll(".dirs [data-edge]").forEach((b) => {
+      b.onclick = () => {
+        const next = edges[+b.dataset.edge];
+        if (next === selected) return;
+        select(next);
+        const pressed = card.querySelector('.dirs [aria-pressed="true"]');
+        if (pressed) pressed.focus();
+      };
+    });
+    card.hidden = false;
+  }
+  const FACILITY_LABEL = ["None", "Sharrows or signed route", "Painted lane", "Protected lane or path"];
+  const TRUCK_LABEL = ["No", "Limited local", "Local", "Through"];
+
+  // The card for one direction of a block, or its corridor's card where it is in one.
+  function showCard(e) {
+    if (mode === "plan" && planView !== "corridors") { showShiftCard(e); return; }
+    if (mode === "plan" && planIndex.has(2 * e.s + e.d)) { showCorridorCard(planIndex.get(2 * e.s + e.d)[0], e); return; }
+    const s = e.s, p = data.p[s];
+    const r = BikeCost.edge(p, data.speed[s], data.vf[s], data.vr[s], e.d, k);
+    const traf = p & 3;
+    const cars = traf === 0 ? "None" : traf === 1 ? "Two-way" : (traf === (e.d === 0 ? 2 : 3) ? "One-way, with you" : "One-way, against you");
+    const lanes = data.lanes[s], speed = data.speed[s], len = data.len[s];
+    let traffic = "";
+    if (traf !== 0) {
+      const oncoming = traf !== 1 && traf !== (e.d === 0 ? 2 : 3);
+      const label = oncoming ? "# oncoming cars" : "# cars";
+      const own = counted.get(2 * s + (oncoming ? 1 - e.d : e.d));
+      const shown = r.volume >= 1000 ? Math.round(r.volume / 100) * 100 : Math.round(r.volume / 10) * 10;
+      traffic = `<dt>${label}</dt><dd>≈${shown.toLocaleString()}/day</dd>`;
+      if (own !== undefined) traffic += `<dt>DOT counted</dt><dd>${own.toLocaleString()}/day</dd>`;
+    }
+    let verdict;
+    if (r.ride) verdict = `Ridden at <b class="num">${fmt2(r.rideFactor)}×</b> its length: costs <span class="num">${ftText(len * r.rideFactor)}</span>.`;
+    else if (r.canRide) verdict = `Walked: riding would cost <b class="num">${fmt2(r.rideFactor)}×</b>, the sidewalk <b class="num">${r.walkFactor.toFixed(1)}×</b>.`;
+    else verdict = `Walked at <b class="num">${r.walkFactor.toFixed(1)}×</b>: riding this way is not allowed.`;
+    const card = document.getElementById("card");
+    card.innerHTML = `<button type="button" class="x" aria-label="Close">×</button>
+      <h4></h4>${directions(e)}
+      <dl>
+        <dt>Length</dt><dd>${ftText(len)}</dd>
+        <dt>Bike lane this way</dt><dd>${p & (1 << 11) ? "Shared street, local traffic only" : FACILITY_LABEL[r.facility]}</dd>
+        <dt>Cars</dt><dd>${cars}</dd>
+        <dt>Car lanes</dt><dd>${traf === 0 ? "–" : lanes > 0 ? lanes : "not recorded"}</dd>
+        ${traffic}
+        <dt>Speed limit</dt><dd>${traf === 0 ? "–" : speed > 0 ? speed + " mph" : "25 mph (default)"}</dd>
+        <dt>Truck route</dt><dd>${TRUCK_LABEL[(p >> 2) & 3]}</dd>
+        <dt>Traffic penalty</dt><dd>${fmt2(r.penalty)}</dd>
+        ${data.tf ? `<dt>Citi Bike trips a day</dt><dd>${perDay(e, "t").toLocaleString()} safest · ${perDay(e, "s").toLocaleString()} shortest</dd>` : ""}
+      </dl>
+      <div class="verdict">${verdict}</div>`;
+    card.querySelector("h4").textContent = data.names[data.name[s]] || "Unnamed";
+    wireCard(card);
+  }
+
+  // ---------- trips ----------
+  // Routed Citi Bike trips a year in one direction of a segment; which routing
+  // by prefix: "t" safest, "s" shortest.
+  function perDay(e, which) {
+    const a = data[which + (e.d === 0 ? "f" : "r")];
+    return Math.round(a[e.s] / 365);
+  }
+  function logPos(v, max) { return Math.min(Math.log10(1 + Math.abs(v)) / Math.log10(1 + max), 1); }
+
+  function paintTrips() {
+    const m = edges.length;
+    if (!widths || widths.length !== m) widths = new Float32Array(m);
+    const diff = flowView === "diff";
+    for (let i = 0; i < m; i++) {
+      const e = edges[i];
+      const safe = data[e.d === 0 ? "tf" : "tr"][e.s] / 365;
+      const short = data[e.d === 0 ? "sf" : "sr"][e.s] / 365;
+      const v = diff ? safe - short : flowView === "safest" ? safe : short;
+      let rgb, w;
+      if (Math.abs(v) < 0.5) { rgb = palette.faint; w = 0.6; }
+      else if (diff) [rgb, w] = diffStyle(v);
+      else [rgb, w] = flowStyle(v);
+      colors[4 * i] = rgb[0]; colors[4 * i + 1] = rgb[1]; colors[4 * i + 2] = rgb[2]; colors[4 * i + 3] = 255;
+      widths[i] = w;
+    }
+    drawFlowLegend();
+  }
+
+  // Trips a day: light to dark blue on a log scale, wider with more.
+  function flowStyle(v) {
+    if (v < 0.5) return [palette.faint, 0.6];
+    return [mix(palette.flowLo, palette.flowHi, logPos(v, FLOW_MAX)), 0.8 + 4 * Math.sqrt(Math.min(v / FLOW_MAX, 1))];
+  }
+  function flowRamp() {
+    const stops = [], ticks = [];
+    for (let i = 0; i <= 20; i++) stops.push(`${css(mix(palette.flowLo, palette.flowHi, i / 20))} ${(i / 20 * 100).toFixed(1)}%`);
+    // no 1,000 tick: on a 328 px rail it runs into the 3,000+ at the end
+    for (const v of [1, 10, 100]) {
+      ticks.push(`<span class="c" style="left:${(logPos(v, FLOW_MAX) * 100).toFixed(1)}%">${v.toLocaleString()}</span>`);
+    }
+    ticks.push(`<span style="left:100%">${FLOW_MAX.toLocaleString()}+</span>`);
+    return { stops, ticks };
+  }
+  // A difference in trips a day: grey to blue for more, to red for fewer, on a log scale.
+  function diffStyle(v) {
+    const t = logPos(v, DIFF_MAX);
+    return [mix(palette.mid, v > 0 ? palette.blue : palette.red, t), 0.8 + 3.5 * Math.sqrt(Math.min(Math.abs(v) / DIFF_MAX, 1))];
+  }
+  const css = (c) => `rgb(${c[0]} ${c[1]} ${c[2]})`;
+  // That ramp as a legend: gradient stops and the ticks under it. A change
+  // under ``faint`` is drawn faint, and so is the middle of the ramp.
+  function diffRamp(faint = 0, marks = [-1000, -10, 0, 10, 1000]) {
+    const stops = [], ticks = [];
+    for (let i = -40; i <= 40; i++) {
+      const v = Math.sign(i) * (Math.pow(10, Math.abs(i) / 40 * Math.log10(1 + DIFF_MAX)) - 1);
+      const c = Math.abs(v) < faint ? palette.faint : mix(palette.mid, i >= 0 ? palette.blue : palette.red, logPos(v, DIFF_MAX));
+      stops.push(`${css(c)} ${((i + 40) / 80 * 100).toFixed(1)}%`);
+    }
+    const at = (v) => 50 + Math.sign(v) * logPos(v, DIFF_MAX) * 50;
+    for (const v of marks) {
+      ticks.push(`<span style="left:${at(v).toFixed(1)}%">${v > 0 ? "+" : ""}${v.toLocaleString()}${Math.abs(v) === DIFF_MAX ? "+" : ""}</span>`);
+    }
+    return { stops, ticks };
+  }
+
+  function drawFlowLegend() {
+    const diff = flowView === "diff";
+    let stops = [], ticks = [];
+    if (diff) {
+      ({ stops, ticks } = diffRamp());
+      document.getElementById("flowEnds").innerHTML = "<span>Fewer on the safest routes</span><span>More</span>";
+      document.getElementById("flowNote").textContent =
+        "Trips a day on the safest routes minus the shortest. Blue is where routing for safety sends riders; red is what it takes them off.";
+    } else {
+      ({ stops, ticks } = flowRamp());
+      document.getElementById("flowEnds").innerHTML = "";
+      document.getElementById("flowNote").textContent = flowView === "safest"
+        ? `Every ${data.flow.year} Citi Bike trip between two stations, on its cheapest route under config.py's costs. Moving the cost knobs does not re-route them.`
+        : "The same trips on the shortest route a bike may legally ride, ignoring traffic and lanes: the baseline the safety costs are judged against.";
+    }
+    document.getElementById("flowRamp").style.background = `linear-gradient(to right, ${stops.join(", ")})`;
+    document.getElementById("flowTicks").innerHTML = ticks.join("");
+  }
+
+  // ---------- new corridors ----------
+  // Each corridor's blocks wide in orange, dashed where the lane would run
+  // against one-way traffic; the blocks it bridges that are protected
+  // already, and the rest of today's protected network, in blue. A filter
+  // thins the corridors it leaves out; the selected corridor is in ink.
+  const CONTRAFLOW = 0;  // index into data.plan.kinds
+  function paintPlan() {
+    const m = edges.length;
+    if (!widths || widths.length !== m) widths = new Float32Array(m);
+    planDashed = []; dashedAt = new Map();
+    if (planView !== "corridors") { paintEffect(); return; }
+    for (let i = 0; i < m; i++) {
+      const e = edges[i], c = planIndex.get(2 * e.s + e.d);
+      let rgb, w;
+      if (c !== undefined) {
+        const sel = selectedCorridor === c[0];
+        const dim = (selectedCorridor !== null && !sel) || !corridorShown(data.plan.corridors[c[0]]);
+        rgb = c[1] ? (sel ? palette.walk : palette.planNew) : palette.planOld;
+        w = c[1] ? (sel ? 6 : dim ? 1.5 : 4) : (sel ? 3 : 2);
+        if (c[1] && c[2] === CONTRAFLOW) {
+          const dash = { e, color: rgb.concat(255), width: w };
+          planDashed.push(dash); dashedAt.set(i, dash);
+          rgb = palette.faint; w = 0.6;
+        }
+      } else if (kind[i] === 0 && factor[i] < 1 + 1e-6) { rgb = palette.planOld; w = 1.2; }
+      else { rgb = palette.faint; w = 0.6; }
+      colors[4 * i] = rgb[0]; colors[4 * i + 1] = rgb[1]; colors[4 * i + 2] = rgb[2]; colors[4 * i + 3] = 255;
+      widths[i] = w;
+    }
+  }
+
+  const HEADING = { N: "Northbound", E: "Eastbound", S: "Southbound", W: "Westbound" };
+  // A corridor can join several gaps across blocks protected already; say so,
+  // or "E 35 St → E 2 St" reads as one 2 mi project.
+  const OPPOSITE = { N: "Southbound", E: "Westbound", S: "Northbound", W: "Eastbound" };
+  const KIND_SHORT = { none: "new lane", painted: "paint to protected", shared: "sharrows to protected", contraflow: "contraflow" };
+  const KIND_LONG = {
+    none: "Lane where there is none", painted: "Painted lane made protected",
+    shared: "Sharrows or shared street made protected", contraflow: "Against one-way traffic",
+  };
+  const FAC_LABEL = { separated: "Protected lane", painted: "Painted lane", shared: "Sharrows or shared street", none: "No bike lane" };
+  function corridorSpan(c) {
+    const gaps = c.gaps > 1 ? ` (${c.gaps} gaps)` : "";
+    return `${HEADING[c.heading] || ""} ${KIND_SHORT[c.kind]} · ${c.from} → ${c.to}${gaps} · ${c.boro}`;
+  }
+  function corridorShown(c) {
+    if (corFilter === "all") return true;
+    if (corFilter === "new") return c.kind === "none";
+    if (corFilter === "upgrade") return c.kind === "painted" || c.kind === "shared";
+    return c.kind === "contraflow";
+  }
+  const kmText = (m) => mi(m).toFixed(m < 10000 ? 2 : 1) + " mi";
+  function showCorridorCard(ci, e) {
+    const c = data.plan.corridors[ci];
+    const card = document.getElementById("card");
+    const block = e ? planIndex.get(2 * e.s + e.d) : null;
+    const here = !block ? ""
+      : !block[1] ? "This block is protected already: the corridor joins the lanes either side of it."
+      : block[2] === CONTRAFLOW ? `This block would get a ${(HEADING[c.heading] || "").toLowerCase()} lane against one-way traffic.`
+      : "This block would get a new protected lane.";
+    const parts = data.plan.kinds.filter((k) => c.kinds[k] > 0)
+      .map((k) => `<dt class="part">${KIND_LONG[k]}</dt><dd>${kmText(c.kinds[k])}</dd>`).join("");
+    card.innerHTML = `<button type="button" class="x" aria-label="Close">×</button>
+      <h4></h4><div class="dir"></div>${e ? directions(e) : ""}
+      <dl>
+        <dt>New protected lane</dt><dd>${kmText(c.new_m)}</dd>
+        ${parts}
+        <dt>${OPPOSITE[c.heading] || "Other direction"} today</dt><dd>${FAC_LABEL[c.opposite] || "–"}</dd>
+        <dt>Trips a day that would ride it</dt><dd>${c.trips_day.toLocaleString()}</dd>
+        <dt>Cost saved a year</dt><dd>${Math.round(mi(c.saved * 1000)).toLocaleString()} cost-mi</dd>
+        <dt>Its blocks one at a time</dt><dd>${Math.round(mi(c.blocks * 1000)).toLocaleString()} cost-mi</dd>
+        <dt>Built in round</dt><dd>${c.round} of ${data.plan.rounds}</dd>
+      </dl>
+      <div class="verdict">${here ? here + " " : ""}Figures are for the corridor built on its own against today's network.</div>
+      ${exampleOf.has(ci) ? '<button type="button" class="seetrip">See a trip it changes</button>' : ""}`;
+    card.querySelector("h4").textContent = titleCase(c.street);
+    card.querySelector(".dir").textContent = corridorSpan(c);
+    wireCard(card);
+    const see = card.querySelector(".seetrip");
+    if (see) see.onclick = () => { const x = exampleOf.get(ci); setPlanView("riders"); showExample(x); };
+  }
+
+  function buildPlan(plan) {
+    for (const [s, d, c, isNew, k] of plan.blocks) planIndex.set(2 * s + d, [c, isNew, k]);
+    document.getElementById("plan-h").textContent = `Build-out of ${Math.round(mi(plan.budget_km * 1000)).toLocaleString()} mi`;
+    document.getElementById("planKm").textContent = mi(plan.new_km * 1000).toFixed(1);
+    document.getElementById("planKmLabel").textContent = `miles of new protected lane in ${plan.corridors.length} corridors`;
+    const contra = plan.corridors.reduce((t, c) => t + c.kinds.contraflow, 0) / 1000;
+    document.getElementById("planNewKm").textContent = mi((plan.new_km - contra) * 1000).toFixed(1) + " mi";
+    document.getElementById("planContraKm").textContent = mi(contra * 1000).toFixed(1) + " mi";
+    document.querySelectorAll("[data-kind]").forEach((b) => {
+      b.onclick = () => {
+        corFilter = b.dataset.kind; corAll = false;
+        document.querySelectorAll("[data-kind]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+        renderCorridors(); paintPlan(); version++; render();
+      };
+    });
+    document.getElementById("planLine").textContent =
+      `Saves ${(plan.saved_share * 100).toFixed(1)}% of the cost of every ${plan.year} Citi Bike trip; ` +
+      `${plan.helped_day.toLocaleString()} trips a day (${(plan.helped_share * 100).toFixed(0)}%) ride at least one new block.`;
+    if (plan.effect && data.pf) buildEffect(plan.effect);
+    document.querySelectorAll("[data-sort]").forEach((b) => {
+      b.onclick = () => {
+        corSort = b.dataset.sort;
+        document.querySelectorAll("[data-sort]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+        renderCorridors();
+      };
+    });
+    document.getElementById("corMore").onclick = () => { corAll = !corAll; renderCorridors(); };
+    renderCorridors();
+  }
+
+  // Each order prints the number it sorts by, with trips a day beneath.
+  const COR_ORDER = {
+    saved: { key: (c) => -c.in_plan, value: (c) => Math.round(mi(c.in_plan * 1000) / 1000).toLocaleString() + "k",
+      note: "Cost each corridor saves, in thousand cost-miles a year, counted when it was picked with the corridors before it built, and trips a day that would ride it on its own. Select one to go to it." },
+    km: { key: (c) => -c.new_m, value: (c) => kmText(c.new_m),
+      note: "New protected lane, and trips a day that would ride it on its own. Select one to go to it." },
+    order: { key: (c, i) => i, value: (c) => kmText(c.new_m),
+      note: "In the order the build-out picked them: new protected lane, and trips a day that would ride it on its own. Select one to go to it." },
+  };
+  function renderCorridors() {
+    const plan = data.plan, how = COR_ORDER[corSort];
+    const order = plan.corridors.map((c, i) => i).filter((i) => corridorShown(plan.corridors[i])).sort((a, b) =>
+      how.key(plan.corridors[a], a) - how.key(plan.corridors[b], b) || a - b);
+    const shown = corAll ? order : order.slice(0, COR_SHOWN);
+    const list = document.getElementById("corList");
+    list.innerHTML = "";
+    shown.forEach((i, pos) => {
+      const c = plan.corridors[i];
+      const li = document.createElement("li");
+      li.innerHTML = `<button type="button"><span class="rank">${pos + 1}</span>
+        <span class="tname"></span>
+        <span class="tv">${how.value(c)}<small>${c.trips_day.toLocaleString()}/day</small></span></button>`;
+      const name = li.querySelector(".tname");
+      name.textContent = titleCase(c.street);
+      const small = document.createElement("small");
+      small.textContent = corridorSpan(c);
+      name.appendChild(small);
+      li.querySelector("button").onclick = () => {
+        selected = null; selectedCorridor = i; paintPlan(); version++; render();
+        showCorridorCard(i, null); flyTo(c.bbox);
+      };
+      list.appendChild(li);
+    });
+    if (!order.length) list.innerHTML = '<li class="note">No corridor of this kind in the plan.</li>';
+    const more = document.getElementById("corMore");
+    more.hidden = order.length <= COR_SHOWN;
+    more.textContent = corAll ? `Show the first ${COR_SHOWN}` : `Show all ${order.length.toLocaleString()}`;
+    document.getElementById("corNote").textContent = how.note;
+  }
+
+  // ---------- what the plan changes for riders ----------
+  // The year's trips routed again with the plan built (the effect command).
+  // "Where riders go" maps trips a day with it minus today, and draws one
+  // real trip per corridor both ways; "Who gains" maps each station by the
+  // share of its trips' cost saved. The trips are held fixed.
+  const hasEffect = () => !!(data && data.plan && data.plan.effect && data.pf);
+  const PLAN_LEDE = {
+    corridors: "Where new protected lanes would save Citi Bike riders the most cost, scored as whole corridors rather than block by block.",
+    riders: "The same Citi Bike trips routed again with the improvements built. Color and width are the change in trips a day along each street, each direction.",
+    stations: "Each Citi Bike station by how much less its trips would cost with the improvements built.",
+    split: "The same Citi Bike trips today and with the improvements built, side by side. Color and width are trips a day along each street, each direction.",
+  };
+  const pctText = (v, digits = 0) => (v * 100).toFixed(digits) + "%";
+  const distText = (m) => (mi(m) < 0.1 ? `${Math.round(m * FT_PER_M / 10) * 10} ft` : `${mi(m).toFixed(1)} mi`);
+  const setRgb = (i, rgb, w) => { colors[4 * i] = rgb[0]; colors[4 * i + 1] = rgb[1]; colors[4 * i + 2] = rgb[2]; colors[4 * i + 3] = 255; widths[i] = w; };
+  const isNew = (e) => { const c = planIndex.get(2 * e.s + e.d); return c !== undefined && c[1] === 1; };
+
+  // Riders: the change in trips a day. Stations: the plan's new lane, thin,
+  // behind the dots. An example trip: nothing but its own routes, today's on
+  // the main map and the plan's in the pane beside it.
+  function paintEffect() {
+    const m = edges.length, riders = planView === "riders" && selectedExample === null;
+    const split = riders && compare === "split", shift = riders && !split;
+    const lanes = planView === "stations", trip = selectedExample !== null && planDeck;
+    if ((split || trip) && (!planColors || planWidths.length !== m)) { planColors = new Uint8Array(4 * m); planWidths = new Float32Array(m); }
+    if (trip) {
+      for (let i = 0; i < m; i++) {
+        planColors[4 * i] = palette.faint[0]; planColors[4 * i + 1] = palette.faint[1]; planColors[4 * i + 2] = palette.faint[2];
+        planColors[4 * i + 3] = 255; planWidths[i] = 0.6;
+      }
+    }
+    for (let i = 0; i < m; i++) {
+      const e = edges[i];
+      if (split) {
+        const [rgb, w] = flowStyle(data[e.d === 0 ? "tf" : "tr"][e.s] / 365);
+        setRgb(i, rgb, w);
+        const [prgb, pw] = flowStyle(data[e.d === 0 ? "pf" : "pr"][e.s] / 365);
+        planColors[4 * i] = prgb[0]; planColors[4 * i + 1] = prgb[1]; planColors[4 * i + 2] = prgb[2]; planColors[4 * i + 3] = 255;
+        planWidths[i] = pw;
+      } else if (shift) {
+        const v = (data[e.d === 0 ? "pf" : "pr"][e.s] - data[e.d === 0 ? "tf" : "tr"][e.s]) / 365;
+        if (Math.abs(v) < SHIFT_FAINT) setRgb(i, palette.faint, 0.6);
+        else { const [rgb, w] = diffStyle(v); setRgb(i, rgb, w); }
+      } else if (lanes && isNew(e)) setRgb(i, palette.planNew, 1.6);
+      else setRgb(i, palette.faint, 0.6);
+    }
+    for (const o of stationObjs) o.c = stationColor(data.plan.effect.stations.saved[o.i]);
+    drawEffectLegends();
+  }
+  function stationColor(v) {
+    if (v < 0.0005) return oklabToRgb(palette.mid);
+    return mix(palette.flowLo, palette.flowHi, 0.12 + 0.88 * Math.min(v / SAVED_MAX, 1));
+  }
+  function drawEffectLegends() {
+    const split = compare === "split";
+    const d = split ? flowRamp() : diffRamp(SHIFT_FAINT, [-1000, -SHIFT_FAINT, SHIFT_FAINT, 1000]);
+    document.getElementById("shiftRamp").style.background = `linear-gradient(to right, ${d.stops.join(", ")})`;
+    document.getElementById("shiftTicks").innerHTML = d.ticks.join("");
+    document.getElementById("shiftEnds").hidden = split;
+    document.getElementById("shift-h").textContent = split ? "Trips a day, each direction" : "Change in trips a day, each direction";
+    document.getElementById("shiftNote").textContent = shiftNotes[compare] || "";
+    const stops = [], ticks = [];
+    for (let i = 0; i <= 20; i++) stops.push(`${css(stationColor(SAVED_MAX * Math.max(i, 0.01) / 20))} ${i * 5}%`);
+    for (const v of [0, 0.05, 0.1, 0.15, 0.2]) {
+      ticks.push(`<span${v > 0 && v < SAVED_MAX ? ' class="c"' : ""} style="left:${v / SAVED_MAX * 100}%">${pctText(v)}${v === SAVED_MAX ? "+" : ""}</span>`);
+    }
+    document.getElementById("stRamp").style.background = `linear-gradient(to right, ${stops.join(", ")})`;
+    document.getElementById("stTicks").innerHTML = ticks.join("");
+  }
+
+  // An example trip's route, each block in the color of what it rides on:
+  // today's on the main map, the plan's in the pane beside it, in one key.
+  // Arrowheads along it show the way it is ridden; a ring marks the start and
+  // a dot the end.
+  function routeLayers(which, ext) {
+    if (mode !== "plan" || selectedExample === null) return [];
+    const list = route[which], marks = route.marks[which];
+    const center = offset * 1.4 * widthScale;  // the line's middle, right of the block's centerline
+    const arrows = (id, icon, size, color) => new deck.IconLayer({
+      id, data: marks.arrows, iconAtlas: atlas, iconMapping: ARROW_ICONS, getIcon: () => icon,
+      getPosition: (a) => a.p, getAngle: (a) => a.angle, getSize: size, sizeUnits: "pixels",
+      getPixelOffset: (a) => [a.dir[1] * center, a.dir[0] * center], getColor: color,
+      billboard: false, pickable: false,
+      updateTriggers: { getColor: version, getPixelOffset: [offset, widthScale] },
+    });
+    return [
+      new deck.PathLayer({
+        id: `route-${which}`, data: list, getPath: (o) => o.e.path, positionFormat: "XY",
+        getColor: (o) => palette.fac[o.f].concat(255), getWidth: 4,
+        widthUnits: "pixels", widthScale, getOffset: offset * 1.4 / 4, extensions: [ext],
+        capRounded: true, jointRounded: true, pickable: false,
+        updateTriggers: { getColor: version },
+      }),
+      arrows(`route-${which}-halo`, "halo", 24, palette.plane.concat(255)),
+      arrows(`route-${which}-arrows`, "arrow", 24, (a) => palette.fac[a.f].concat(255)),
+      new deck.ScatterplotLayer({
+        id: `route-${which}-ends`, data: marks.ends, getPosition: (m) => m.p, getRadius: 6, radiusUnits: "pixels",
+        getFillColor: (m) => (m.end ? palette.walk : palette.plane).concat(255),
+        getLineColor: (m) => (m.end ? palette.plane : palette.walk).concat(255),
+        stroked: true, getLineWidth: 2.5, lineWidthUnits: "pixels", pickable: false,
+        updateTriggers: { getFillColor: version, getLineColor: version },
+      }),
+    ];
+  }
+  // Arrowheads every ARROW_EVERY_M or so along a route (2 to 10 of them),
+  // pointing the way it is ridden, and its two ends. Its edges come origin
+  // first, each path drawn in its direction of travel.
+  const ARROW_EVERY_M = 500, M_PER_DEG = 111320;
+  function routeMarks(list) {
+    if (!list.length) return { arrows: [], ends: [] };
+    const steps = [];
+    let total = 0;
+    for (const o of list) {
+      const p = o.e.path;
+      for (let j = 1; j < p.length / 2; j++) {
+        const dx = (p[2 * j] - p[2 * j - 2]) * COS_LAT, dy = p[2 * j + 1] - p[2 * j - 1], len = Math.hypot(dx, dy);
+        if (len > 0) { steps.push({ x: p[2 * j - 2], y: p[2 * j - 1], dx, dy, len, at: total, f: o.f }); total += len; }
+      }
+    }
+    const n = Math.min(Math.max(Math.round(total * M_PER_DEG / ARROW_EVERY_M), 2), 10), arrows = [];
+    let k = 0;
+    for (let a = 0; a < n; a++) {
+      const goal = total * (a + 0.5) / n;
+      while (k < steps.length - 1 && steps[k].at + steps[k].len < goal) k++;
+      const st = steps[k], t = (goal - st.at) / st.len;
+      arrows.push({
+        p: [st.x + st.dx / COS_LAT * t, st.y + st.dy * t], angle: Math.atan2(st.dy, st.dx) * 180 / Math.PI,
+        dir: [st.dx / st.len, st.dy / st.len], f: st.f,
+      });
+    }
+    const first = list[0].e.path, last = list[list.length - 1].e.path;
+    return { arrows, ends: [{ p: [first[0], first[1]], end: false }, { p: [last[last.length - 2], last[last.length - 1]], end: true }] };
+  }
+  // What a route rides on along one edge, as the trip card's table counts it
+  // (effect.route_mix, under config.py's costs): a block it walks is walked
+  // whatever its lane, and with the plan a new lane is protected.
+  function routeFacility(e, built) {
+    if (built && isNew(e)) return "separated";
+    const s = e.s, r = BikeCost.edge(data.p[s], data.speed[s], data.vf[s], data.vr[s], e.d, defaults);
+    return !r || !r.ride ? "walked" : BikeCost.FACILITY[r.facility];
+  }
+  // The busiest facility picked from the list, lit as a selected block is.
+  function facilityLayers() {
+    if (mode !== "trips" || selectedFac === null) return [];
+    const line = (id, width, color) => new deck.PathLayer({
+      id, data: facEdges, getPath: (e) => e.path, positionFormat: "XY", getColor: color, getWidth: width,
+      widthUnits: "pixels", getOffset: offset * 1.4 / width, extensions: [offsetExt],
+      capRounded: true, jointRounded: true, pickable: false,
+      updateTriggers: { getOffset: offset },
+    });
+    return [line("fac-casing", 8, CASING), line("fac-lit", 4, LIT)];
+  }
+  function selectFacility(i) {
+    const top = data.flow.top;
+    selectedFac = i === selectedFac ? null : i;
+    facEdges = selectedFac === null ? []
+      : (top[i].edges || []).map((code) => edgeOf[code]).filter((j) => j >= 0).map((j) => edges[j]);
+    document.querySelectorAll("#top button").forEach((b, j) => b.setAttribute("aria-pressed", String(j === selectedFac)));
+    render();
+    if (selectedFac !== null) flyTo(top[i].bbox);
+  }
+  function stationLayers() {
+    if (mode !== "plan" || planView !== "stations") return [];
+    return [new deck.ScatterplotLayer({
+      id: "stations", data: stationObjs, getPosition: (o) => o.p, getRadius: (o) => o.r,
+      radiusUnits: "pixels", radiusScale: widthScale, getFillColor: (o) => o.c, stroked: true,
+      getLineColor: (o) => (o.i === selectedStation ? LIT : palette.plane),
+      getLineWidth: (o) => (o.i === selectedStation ? 3 : 1), lineWidthUnits: "pixels",
+      pickable: true, autoHighlight: true, highlightColor: LIT.concat(255),
+      updateTriggers: { getFillColor: version, getLineColor: [version, selectedStation], getLineWidth: selectedStation },
+    })];
+  }
+
+  function setPlanView(v) {
+    compare = "change"; syncCompare(); closeSplit();
+    planView = v; selectedExample = null; route = NO_ROUTE; selectedStation = null;
+    deselect(); syncPlanView(); renderExamples(); recompute();
+  }
+  function syncPlanView() {
+    const on = mode === "plan";
+    document.getElementById("planViews").hidden = !on || !hasEffect();
+    document.querySelectorAll("[data-pview]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.pview === planView)));
+    document.querySelectorAll("[data-pv]").forEach((el) => { el.hidden = !on || !el.dataset.pv.split(" ").includes(planView); });
+    if (on) document.querySelector(".lede").textContent = PLAN_LEDE[planView === "riders" && compare === "split" ? "split" : planView];
+  }
+  // Escape and the cards' × close an example trip or a station too.
+  function closeEffect() {
+    selectedStation = null; deselect();
+    if (selectedExample !== null) { clearExample(); if (mode === "plan") { paintPlan(); version++; render(); } }
+  }
+  // An example trip opens the side-by-side panes; closing it shuts them
+  // unless the riders view was side by side already.
+  function clearExample() {
+    selectedExample = null; route = NO_ROUTE;
+    if (compare !== "split") closeSplit();
+    renderExamples();
+  }
+
+  // A street's trips a day today and with the plan, in the riders and stations views.
+  function showShiftCard(e) {
+    if (selectedExample !== null || selectedStation !== null) {
+      if (selectedExample !== null) clearExample();
+      selectedStation = null; paintPlan(); version++; render();
+    }
+    const today = perDay(e, "t"), plan = perDay(e, "p"), change = plan - today;
+    const c = planIndex.get(2 * e.s + e.d), cor = c && c[1] ? data.plan.corridors[c[0]] : null;
+    const card = document.getElementById("card");
+    card.innerHTML = `<button type="button" class="x" aria-label="Close">×</button>
+      <h4></h4>${directions(e)}
+      <dl>
+        <dt>Citi Bike trips a day today</dt><dd>${today.toLocaleString()}</dd>
+        <dt>With the improvements built</dt><dd>${plan.toLocaleString()}</dd>
+        <dt>Change</dt><dd>${change > 0 ? "+" : ""}${change.toLocaleString()}</dd>
+      </dl>
+      <div class="verdict"></div>`;
+    card.querySelector("h4").textContent = data.names[data.name[e.s]] || "Unnamed";
+    card.querySelector(".verdict").textContent = cor
+      ? `The plan builds a protected lane here: ${titleCase(cor.street)}, ${corridorSpan(cor)}.`
+      : "No new lane on this block: any change is riders moving to or from one nearby.";
+    wireCard(card);
+    card.querySelector(".x").onclick = closeEffect;  // × does what Escape does, as on the trip and station cards
+  }
+
+  function showExample(i) {
+    const x = data.plan.effect.examples[i];
+    const pick = (codes) => codes.map((code) => edgeOf[code]).filter((j) => j >= 0).map((j) => edges[j]);
+    const today = pick(x.tp).map((e) => ({ e, f: routeFacility(e, false) }));
+    const plan = pick(x.pp).map((e) => ({ e, f: routeFacility(e, true) }));
+    route = { today, plan, marks: { today: routeMarks(today), plan: routeMarks(plan) } };
+    selectedExample = i; selectedStation = null;
+    deselect();  // the map is the routes' alone: no card over it
+    openSplit();
+    paintPlan(); version++; render();
+    renderExamples();
+    flyTo(x.bbox);
+    const open = document.querySelector("#exList li.open");
+    if (open) open.scrollIntoView({ block: "nearest", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }
+  function viaText(x) {
+    const names = [...new Set(x.corridors.map((ci) => titleCase(data.plan.corridors[ci].street)))];
+    const list = names.length > 2 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(" and ");
+    return `${list} ${names.length > 1 ? "corridors" : "corridor"}`;
+  }
+  // The selected trip's numbers, under its row in the Example trips list.
+  function tripDetail(x) {
+    const total = (leg) => SHARE_ROWS.reduce((t, [key]) => t + leg.m[key], 0);
+    const rows = SHARE_ROWS.filter(([key]) => x.today.m[key] + x.plan.m[key] > 0)
+      .map(([key, label]) => `<tr><td><i class="sw ${key}"></i>${label}</td><td>${distText(x.today.m[key])}</td><td>${distText(x.plan.m[key])}</td></tr>` +
+        (key === "separated" && x.new_m > 0 ? `<tr class="sub"><td>of it new</td><td>–</td><td>${distText(x.new_m)}</td></tr>` : "")).join("");
+    const saved = 1 - x.plan.cost / x.today.cost;
+    const div = document.createElement("div");
+    div.className = "exdetail";
+    div.innerHTML = `
+      <table class="cmp"><thead><tr><th>Route rides on</th><th>Today</th><th>With improvements</th></tr></thead><tbody>${rows}
+        <tr class="total"><td>Distance</td><td>${distText(total(x.today))}</td><td>${distText(total(x.plan))}</td></tr>
+        <tr><td>Cost, cost-miles</td><td>${mi(x.today.cost).toFixed(1)}</td><td>${mi(x.plan.cost).toFixed(1)}</td></tr>
+      </tbody></table>
+      <div class="ends"><span><i class="dot"></i>Start</span><span><i class="dot end"></i>End</span></div>
+      <div class="verdict">This trip costs ${pctText(saved)} less, and is taken ${x.trips_day.toLocaleString()} times a day. A route's cost is its length weighted by traffic and lanes, as on the Cost map. Select the trip again or press Escape to close it.</div>`;
+    return div;
+  }
+
+  function showStation(o) {
+    const st = data.plan.effect.stations, i = o.i;
+    selected = null; selectedStation = i; render();
+    const card = document.getElementById("card");
+    card.innerHTML = `<button type="button" class="x" aria-label="Close">×</button>
+      <h4></h4><div class="dir">${st.n[i] > 1 ? `${st.n[i]} stations at this corner` : "Citi Bike station"}</div>
+      <dl>
+        <dt>Trips a day starting or ending here</dt><dd>${st.trips_day[i].toLocaleString()}</dd>
+        <dt>Cost saved on them</dt><dd>${pctText(st.saved[i], 1)}</dd>
+        <dt>Trips that gain</dt><dd>${pctText(st.helped[i])}</dd>
+      </dl>
+      <div class="verdict">A trip counts at both its stations. A route's cost is its length weighted by traffic and lanes.</div>`;
+    card.querySelector("h4").textContent = st.name[i];
+    card.querySelector(".x").onclick = closeEffect;
+    card.hidden = false;
+  }
+  function stationTip(o) {
+    const st = data.plan.effect.stations;
+    return {
+      html: `<b>${esc(st.name[o.i])}</b> <span style="color:var(--ink-2)">${pctText(st.saved[o.i], 1)} lower cost</span>`,
+      style: {
+        backgroundColor: "var(--plane)", color: "var(--ink)", border: "1px solid var(--rule)", borderRadius: "4px",
+        padding: "4px 8px", font: "12px var(--font-ui)", boxShadow: "0 2px 8px rgb(0 0 0 / 0.12)",
+        marginLeft: "14px", marginTop: "14px", whiteSpace: "nowrap",
+      },
+    };
+  }
+
+  function rankedItem(rank, name, sub, value, under, onclick) {
+    const li = document.createElement("li");
+    li.innerHTML = `<button type="button"><span class="rank">${rank}</span><span class="tname"></span>
+      <span class="tv">${value}<small>${under}</small></span></button>`;
+    const n = li.querySelector(".tname");
+    n.textContent = name;
+    const small = document.createElement("small"); small.textContent = sub; n.appendChild(small);
+    li.querySelector("button").onclick = onclick;
+    return li;
+  }
+  // The examples come sorted by the cost they save a year (trips times the
+  // drop in cost). A short trip, one whose route barely moves, or one much like
+  // a trip above it is left off the list, though its corridor's card still links it.
+  // The selected trip opens under its row; one not in the rows shown (left
+  // off the list, or past the first EX_SHOWN, when picked from a corridor's
+  // card) goes on top.
+  function renderExamples() {
+    if (!data.plan || !data.plan.effect) return;
+    const ex = data.plan.effect.examples, list = document.getElementById("exList");
+    const listed = ex.map((x, i) => i).filter((i) => ex[i].listed !== false);
+    const shown = exAll ? listed : listed.slice(0, EX_SHOWN);
+    const rows = selectedExample !== null && !shown.includes(selectedExample) ? [selectedExample, ...shown] : shown;
+    list.innerHTML = "";
+    rows.forEach((i) => {
+      const x = ex[i], at = listed.indexOf(i);
+      const li = rankedItem(at >= 0 ? at + 1 : "·", `${x.from} → ${x.to}`, `for the ${viaText(x)}`,
+        `−${pctText(1 - x.plan.cost / x.today.cost)}`, `${x.trips_day.toLocaleString()}/day`,
+        () => (i === selectedExample ? closeEffect() : showExample(i)));
+      const on = i === selectedExample;
+      li.querySelector("button").setAttribute("aria-pressed", String(on));
+      if (on) { li.classList.add("open"); li.appendChild(tripDetail(x)); }
+      list.appendChild(li);
+    });
+    const more = document.getElementById("exMore");
+    more.hidden = listed.length <= EX_SHOWN;
+    more.textContent = exAll ? `Show the first ${EX_SHOWN}` : `Show all ${listed.length.toLocaleString()}`;
+    document.getElementById("exNote").textContent =
+      `One real trip for each corridor, among the station pairs that gain most, sorted by the cost saved (trips a day times the drop per trip), with the share saved and trips a day. ` +
+      `${(ex.length - listed.length).toLocaleString()} of the ${ex.length.toLocaleString()} are left off: too short, keeping mostly today's route, or sharing most of their streets with one above. ` +
+      `Select one to see both routes.`;
+  }
+
+  // ---------- side by side ----------
+  // The main map shrinks to the left (or top) half and shows today's trips;
+  // a second deck.gl pane beside it shows the same trips with the plan built.
+  // Each follows the other's pan and zoom.
+  function setCompare(v) {
+    if (v === compare && selectedExample === null) return;
+    compare = v; syncCompare();
+    selectedExample = null; route = NO_ROUTE;
+    deselect(); renderExamples();
+    if (v === "split") openSplit(); else closeSplit();
+    syncPlanView(); recompute();
+  }
+  function syncCompare() {
+    document.querySelectorAll("[data-compare]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.compare === compare)));
+  }
+  const VIEW_KEYS = ["longitude", "latitude", "zoom", "pitch", "bearing"];
+  function pickView(vs) {
+    const out = { minZoom: 9, maxZoom: 19 };
+    for (const key of VIEW_KEYS) if (vs[key] !== undefined) out[key] = vs[key];
+    return out;
+  }
+  function openSplit() {
+    if (planDeck) return;
+    const map = document.getElementById("map"), stacked = map.clientWidth < SPLIT_STACK_PX;
+    const v = deckgl.getViewports()[0];
+    const view = pickView({ longitude: v.longitude, latitude: v.latitude, zoom: v.zoom });
+    map.classList.add("split"); map.classList.toggle("stacked", stacked);
+    deckgl.setProps(stacked ? { height: "50%" } : { width: "50%" });
+    const label = document.createElement("span");
+    label.className = "pane-label"; label.id = "todayLabel"; label.textContent = "Today";
+    map.appendChild(label);
+    const pane = document.createElement("div");
+    pane.id = "planPane"; pane.innerHTML = '<span class="pane-label">With improvements</span>';
+    map.appendChild(pane);
+    paneExt = new deck.PathStyleExtension({ offset: true });
+    planDeck = new deck.Deck({
+      parent: pane, views: new deck.MapView({ repeat: false }), initialViewState: view, controller: true,
+      pickingRadius: COARSE ? 16 : 6,
+      onViewStateChange: ({ viewState }) => { syncMain(viewState); },
+      getCursor: ({ isHovering }) => (isHovering ? "pointer" : "grab"),
+      getTooltip: (info) => withTrips(tooltip(info), info, "p"),
+      onClick: (info) => { if (info.object) select(info.object.e || info.object); },
+      layers: [],
+    });
+  }
+  function closeSplit() {
+    if (!planDeck) return;
+    planDeck.finalize(); planDeck = null;
+    document.getElementById("planPane").remove();
+    document.getElementById("todayLabel").remove();
+    document.getElementById("map").classList.remove("split", "stacked");
+    deckgl.setProps({ width: "100%", height: "100%" });
+  }
+  // Main map moved: the pane follows. Pane moved: the main map follows, with
+  // what its own onViewStateChange would have done.
+  function syncPane(vs) { if (planDeck) planDeck.setProps({ initialViewState: pickView(vs) }); }
+  function syncMain(vs) {
+    deckgl.setProps({ initialViewState: pickView(vs) });
+    const zoomed = setZoom(vs.zoom), culled = cullArrows(vs);
+    if (zoomed || culled) render();
+  }
+  // The pane's streets in the plan's colors, with arrowheads from ARROW_ZOOM
+  // and the selected direction lit, as on the main map.
+  function paneLayers() {
+    const widthOf = (i) => Math.max(planWidths[i] * widthScale, MIN_PX);
+    const out = [new deck.PathLayer({
+      id: "pane-edges", data: edges, getPath: (e) => e.path, positionFormat: "XY",
+      getColor: (e, { index }) => planColors.subarray(4 * index, 4 * index + 4), getWidth: (e, { index }) => planWidths[index],
+      widthUnits: "pixels", widthScale, widthMinPixels: MIN_PX, getOffset: offset, extensions: [paneExt],
+      capRounded: false, jointRounded: false, pickable: true, autoHighlight: true, highlightColor: LIT.concat(255),
+      updateTriggers: { getColor: version, getWidth: version },
+    })];
+    out.push(...routeLayers("plan", paneExt));
+    if (zoomStep >= ARROW_ZOOM && selectedExample === null) {
+      out.push(new deck.IconLayer({
+        id: "pane-arrows", data: arrowData, iconAtlas: atlas, iconMapping: ARROW_ICONS, getIcon: () => "arrow",
+        getPosition: (e) => [arrowPos[2 * e.i], arrowPos[2 * e.i + 1]], getAngle: (e) => arrowAngle[e.i],
+        getSize: (e) => { const px = widthOf(e.i); return px >= KNOCKOUT_PX ? Math.min(1.25 * px, 24) : Math.min(Math.max(3.5 * px, 9), 20); },
+        sizeUnits: "pixels", getPixelOffset: (e) => sideOffset(e.i, centerOf(planWidths[e.i])),
+        getColor: (e) => (widthOf(e.i) >= KNOCKOUT_PX ? palette.plane.concat(255) : planColors.subarray(4 * e.i, 4 * e.i + 4)),
+        billboard: false, pickable: false,
+        updateTriggers: { getSize: [version, widthScale], getPixelOffset: [version, widthScale, offset], getColor: [version, widthScale] },
+      }));
+    }
+    if (selected) {
+      const lit = widthOf(selected.i) + 2;
+      out.push(new deck.PathLayer({
+        id: "pane-selected", data: [selected], getPath: (e) => e.path, positionFormat: "XY", getColor: LIT,
+        getWidth: lit, widthUnits: "pixels", getOffset: centerOf(planWidths[selected.i]) / lit, extensions: [paneExt],
+        capRounded: true, jointRounded: true, pickable: false,
+      }));
+    }
+    return out;
+  }
+  // Hover tooltips name the street; side by side they add its trips a day there.
+  function withTrips(tip, info, which) {
+    if (!tip || !info.object || !planDeck) return tip;
+    const e = info.object.e || info.object;
+    return { ...tip, html: `${tip.html} <span style="color:var(--ink-2)">· ${perDay(e, which).toLocaleString()} trips a day</span>` };
+  }
+  function mainTip(info) {
+    if (info.layer && info.layer.id === "stations" && info.object) return stationTip(info.object);
+    return withTrips(tooltip(info), info, "t");
+  }
+
+  function buildEffect(eff) {
+    const st = eff.stations;
+    document.getElementById("planLine").textContent =
+      `Saves ${pctText(eff.saved_share, 1)} of the cost of all ${(eff.trips / 1e6).toFixed(1)} million ${eff.year} Citi Bike trips, ` +
+      `each routed again with it built; ${eff.helped_day.toLocaleString()} trips a day (${pctText(eff.helped_share)}) gain.`;
+    document.getElementById("gainMix").innerHTML = shareBars([["Today", eff.share.today], ["With the plan", eff.share.plan]]);
+    const pair = (label, a, b) => `<tr class="sep"><td>${label}</td><td class="v">${a}</td><td class="v">${b}</td></tr>`;
+    document.getElementById("gainTable").innerHTML =
+      `<thead><tr><th>Share of trip-miles</th><th>Today</th><th>With improvements</th></tr></thead><tbody>` +
+      SHARE_ROWS.map(([key, label]) => {
+        const a = eff.share.today[key] || 0, b = eff.share.plan[key] || 0;
+        return `<tr><td>${swatch(key)}${label}</td><td class="v">${pctText(a, 1)}</td><td class="v">${pctText(b, 1)}</td></tr>`;
+      }).join("") +
+      pair("Longer than the shortest routes", "+" + pctText(eff.detour.today, 1), "+" + pctText(eff.detour.plan, 1)) +
+      `<tr><td>Cost per mile</td><td class="v">${eff.cost_per_km.today.toFixed(2)}×</td><td class="v">${eff.cost_per_km.plan.toFixed(2)}×</td></tr>` +
+      `<tr><td>Miles walked a year</td><td class="v">${Math.round(mi(eff.walked_km.today))}k</td><td class="v">${Math.round(mi(eff.walked_km.plan))}k</td></tr>` +
+      "</tbody>";
+    document.getElementById("gainNote").textContent =
+      `The same ${(eff.trips / 1e6).toFixed(1)} million trips between the same stations, routed again with the improvements built: where they would ride, not new riders. ` +
+      `${pctText(eff.same_route_share)} of the trips that gain keep today's route, because the lane goes on the street they already ride. ` +
+      `The map of where riders go cannot show them; they get ${pctText(eff.same_route_saved)} of the cost saved.`;
+    let moved = 0, small = 0;
+    for (let s = 0; s < data.n; s++) {
+      for (const [p, t] of [[data.pf, data.tf], [data.pr, data.tr]]) {
+        const v = Math.abs(p[s] - t[s]) / 365 * data.len[s];
+        moved += v; if (Math.abs(p[s] - t[s]) / 365 < SHIFT_FAINT) small += v;
+      }
+    }
+    shiftNotes = {
+      change: `Trips a day with the improvements built minus today. Blue is where riders would move to, red the streets they would leave. ` +
+        `A change of under ${SHIFT_FAINT} a day is left faint: ${pctText(small / moved)} of the riding that moves. ` +
+        `${pctText(eff.on_new)} of all trip-miles would ride the new lane.`,
+      split: `Every trip on its safest route: today on the left, with the improvements built on the right (today on top on a narrow screen). ` +
+        `The same trips, so riding one map gains, the other loses. Pan or zoom either; both follow.`,
+    };
+    document.querySelectorAll("[data-compare]").forEach((b) => { b.onclick = () => setCompare(b.dataset.compare); });
+
+    eff.examples.forEach((x, i) => x.corridors.forEach((ci) => { if (!exampleOf.has(ci)) exampleOf.set(ci, i); }));
+    renderExamples();
+    document.getElementById("exMore").onclick = () => { exAll = !exAll; renderExamples(); };
+
+    const streets = (id, items) => {
+      const list = document.getElementById(id);
+      items.forEach((r, i) => list.appendChild(rankedItem(i + 1, titleCase(r.street), r.boro,
+        `${r.km_day > 0 ? "+" : "−"}${Math.round(mi(Math.abs(r.km_day) * 1000)).toLocaleString()}`, "mi/day", () => flyTo(r.bbox))));
+    };
+    streets("joinList", eff.shifts.join);
+    streets("leaveList", eff.shifts.leave);
+
+    stationObjs = st.name.map((_, i) => ({ i, p: [st.lng[i], st.lat[i]], r: 1.5 + Math.sqrt(st.trips_day[i]) / 4, c: [0, 0, 0] }))
+      .sort((a, b) => st.trips_day[b.i] - st.trips_day[a.i]);  // the busiest first, so small dots sit on top
+    const saved = st.saved.slice().sort((a, b) => a - b);
+    document.getElementById("stNote").textContent =
+      `Each dot is a station, or the stations at one corner, sized by trips a day starting or ending there. ` +
+      `Color is the share of those trips' cost saved: ${pctText(saved[Math.floor(saved.length / 2)], 1)} at the median station.`;
+    const top = st.name.map((_, i) => i).filter((i) => st.trips_day[i] >= ST_LIST_MIN)
+      .sort((a, b) => st.saved[b] - st.saved[a]).slice(0, ST_SHOWN);
+    const list = document.getElementById("stList");
+    top.forEach((i, pos) => list.appendChild(rankedItem(pos + 1, st.name[i], st.n[i] > 1 ? `${st.n[i]} stations` : "",
+      `−${pctText(st.saved[i])}`, `${st.trips_day[i].toLocaleString()}/day`, () => {
+        const [x, y] = [st.lng[i], st.lat[i]];
+        flyTo([x - 0.006, y - 0.004, x + 0.006, y + 0.004]); showStation({ i });
+      })));
+    document.getElementById("stListNote").textContent =
+      `Stations with at least ${ST_LIST_MIN} trips a day: the share of their trips' cost saved, and trips a day. Select one to go to it.`;
+    document.querySelectorAll("[data-pview]").forEach((b) => { b.onclick = () => setPlanView(b.dataset.pview); });
+  }
+
+  const SHARE_ROWS = [
+    ["separated", "Protected lane or path"], ["painted", "Painted lane"],
+    ["shared", "Sharrows or shared street"], ["none", "No bike facility"], ["walked", "Walked"],
+  ];
+  const swatch = (key) => `<i class="sw f-${key}"></i>`;
+  // One 100% bar per [label, shares] pair, a segment per facility; segments
+  // too narrow for their percentage go unlabeled (the table below has it).
+  function shareBars(pairs) {
+    return pairs.map(([label, sh]) => `<span>${label}</span><div class="stack">` +
+      SHARE_ROWS.map(([key, name]) => {
+        const v = sh[key] || 0;
+        return v > 0 ? `<i class="f-${key}" style="width:${(v * 100).toFixed(2)}%" title="${name}">${v >= 0.09 ? Math.round(v * 100) + "%" : ""}</i>` : "";
+      }).join("") + "</div>").join("");
+  }
+  function buildTrips(flow) {
+    const pct = (v) => ((v || 0) * 100).toFixed(1) + "%";
+    document.getElementById("shareMix").innerHTML = shareBars([["Safest", flow.share.safest], ["Shortest", flow.share.shortest]]);
+    document.getElementById("share").innerHTML =
+      `<thead><tr><th>Facility</th><th>Safest</th><th>Shortest</th></tr></thead><tbody>` +
+      SHARE_ROWS.map(([key, label]) => {
+        const a = flow.share.safest[key], b = flow.share.shortest[key];
+        return `<tr><td>${swatch(key)}${label}</td><td class="v">${pct(a)}</td><td class="v">${pct(b)}</td></tr>`;
+      }).join("") + "</tbody>";
+    const list = document.getElementById("top");
+    flow.top.forEach((row, i) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<button type="button" aria-pressed="false"><span class="rank">${i + 1}</span>
+        <span class="tname"></span>
+        <span class="tv">${(mi(row.trip_km * 1000) / 1e6).toFixed(1)}M mi<small>${row.peak_day.toLocaleString()}/day</small></span></button>`;
+      const name = li.querySelector(".tname");
+      name.textContent = titleCase(row.street);
+      const small = document.createElement("small"); small.textContent = row.boro; name.appendChild(small);
+      li.querySelector("button").onclick = () => selectFacility(i);
+      list.appendChild(li);
+    });
+    document.querySelectorAll("[data-flow]").forEach((b) => {
+      b.onclick = () => {
+        flowView = b.dataset.flow;
+        document.querySelectorAll("[data-flow]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+        recompute();
+      };
+    });
+  }
+  function titleCase(s) {
+    return s.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase())
+      .replace(/\b(\d+)(St|Nd|Rd|Th)\b/g, (m, n, x) => n + x.toLowerCase())
+      .replace(/(?!^)\b(Of|The|And)\b/g, (w) => w.toLowerCase());
+  }
+  function flyTo([w, s, e, n]) {
+    const el = document.getElementById("map"), stacked = el.classList.contains("stacked");
+    const width = el.clientWidth / (planDeck && !stacked ? 2 : 1), height = el.clientHeight / (planDeck && stacked ? 2 : 1);
+    const vp = new deck.WebMercatorViewport({ width, height });
+    const fit = vp.fitBounds([[w, s], [e, n]], { padding: Math.min(60, width / 6) });
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const target = {
+      longitude: fit.longitude, latitude: fit.latitude, zoom: Math.min(fit.zoom, 16), minZoom: 9, maxZoom: 19,
+      transitionDuration: reduce ? 0 : 900, transitionInterpolator: new deck.FlyToInterpolator(),
+    };
+    deckgl.setProps({ initialViewState: target });
+    if (planDeck) planDeck.setProps({ initialViewState: target });  // side by side, both panes fly together
+    if (window.matchMedia("(max-width: 720px)").matches) el.scrollIntoView({ behavior: reduce ? "auto" : "smooth" });
+  }
+  function setMode(next) {
+    mode = next;
+    document.getElementById("modeCost").setAttribute("aria-pressed", String(mode === "cost"));
+    document.getElementById("modeTrips").setAttribute("aria-pressed", String(mode === "trips"));
+    document.getElementById("modePlan").setAttribute("aria-pressed", String(mode === "plan"));
+    document.querySelectorAll(".cost-only").forEach((el) => { el.hidden = mode !== "cost"; });
+    document.querySelectorAll(".trips-only").forEach((el) => { el.hidden = mode !== "trips"; });
+    document.querySelectorAll(".plan-only").forEach((el) => { el.hidden = mode !== "plan"; });
+    const lede = {
+      cost: "Every street is drawn once per direction, on the rider's right-hand side. Color is how much a mile of riding costs, against a quiet two-way street.",
+      trips: "Every street is drawn once per direction, on the rider's right-hand side. Color and width are Citi Bike trips a day routed along it.",
+      plan: "Where new protected lanes would save Citi Bike riders the most cost, scored as whole corridors rather than block by block.",
+    };
+    document.querySelector(".lede").textContent = lede[mode];
+    selectedExample = null; route = NO_ROUTE; selectedStation = null; syncPlanView(); renderExamples();
+    if (selectedFac !== null) selectFacility(selectedFac);
+    compare = "change"; syncCompare(); closeSplit();
+    document.getElementById("card").hidden = true; selected = null; selectedCorridor = null;
+    recompute();
+  }
+  document.getElementById("modeCost").onclick = () => setMode("cost");
+  document.getElementById("modeTrips").onclick = () => setMode("trips");
+  document.getElementById("modePlan").onclick = () => setMode("plan");
+
+  // ---------- knobs ----------
+  function buildKnobs() {
+    const root = document.getElementById("knobs");
+    let group;
+    for (const kn of KNOBS) {
+      if (kn.group) {
+        group = document.createElement("div"); group.className = "group";
+        group.innerHTML = `<h3>${kn.group}</h3>` + (kn.note ? `<p class="note">${kn.note}</p>` : ""); root.appendChild(group); continue;
+      }
+      const f = kn.fmt || fmt2;
+      const row = document.createElement("div"); row.className = "knob";
+      row.innerHTML = `<label for="k-${kn.key}">${kn.label}</label><output id="o-${kn.key}" for="k-${kn.key}"></output>
+        <input type="range" id="k-${kn.key}" min="${kn.min}" max="${kn.max}" step="${kn.step}" value="${k[kn.key]}">`;
+      group.appendChild(row);
+      const input = row.querySelector("input"), out = row.querySelector("output");
+      const sync = () => { out.textContent = f(k[kn.key]); out.classList.toggle("changed", Math.abs(k[kn.key] - defaults[kn.key]) > 1e-9); };
+      sync();
+      kn.sync = () => { input.value = k[kn.key]; sync(); };
+      input.addEventListener("input", () => { k[kn.key] = parseFloat(input.value); sync(); schedule(); });
+    }
+  }
+  let pending = false;
+  function schedule() {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => { pending = false; recompute(); });
+  }
+
+  function configText() {
+    const n = (v) => (Number.isInteger(v) ? v.toFixed(1) : String(+v.toFixed(3)));
+    return [
+      `EXPOSURE = {"separated": 0.0, "painted": ${n(k.exposure_painted)}, "shared": ${n(k.exposure_shared)}, "none": 1.0}`,
+      `TRAFFIC_BASE = ${n(k.traffic_base)}`,
+      `TRAFFIC_PER_DOUBLING = ${n(k.per_doubling)}`,
+      `VOLUME_REFERENCE = ${Math.round(k.volume_ref)}`,
+      `TRAFFIC_PER_5_MPH = ${n(k.per_5_mph)}`,
+      `TRUCK_PENALTY = {"1": ${n(k.truck_limited)}, "2": ${n(k.truck_local)}, "3": ${n(k.truck_through)}}`,
+      `WALK_FACTOR = ${n(k.walk_factor)}`,
+      `STEP_FACTOR = ${n(k.step_factor)}`,
+    ].join("\n");
+  }
+
+  document.getElementById("reset").onclick = () => {
+    k = Object.assign({}, defaults);
+    for (const kn of KNOBS) if (kn.sync) kn.sync();
+    schedule();
+  };
+  document.getElementById("copy").onclick = () => {
+    const text = configText(), note = document.getElementById("copied"), area = document.getElementById("configText");
+    const fallback = () => { area.value = text; area.hidden = false; area.focus(); area.select(); note.textContent = "Select and copy below"; };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => { note.textContent = "Copied"; area.hidden = true; }, fallback);
+    } else fallback();
+  };
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") { closeEffect(); if (selectedFac !== null) selectFacility(selectedFac); }
+  });
+
+  function onTheme() { if (!data) return; readPalette(); recompute(); }
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", onTheme);
+  new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  // ---------- boot ----------
+  fetch("data.json").then((r) => {
+    if (!r.ok) throw new Error("data.json returned " + r.status);
+    return r.json();
+  }).then((d) => {
+    if (d.format !== DATA_FORMAT) throw new Error(`data.json is format ${d.format ?? "0"}, this page reads format ${DATA_FORMAT}`);
+    data = d; defaults = Object.assign({}, d.knobs); k = Object.assign({}, defaults);
+    document.getElementById("src").textContent = `LION ${d.lion_release.toUpperCase()} street map · NYC DOT bike routes · ${d.n.toLocaleString()} segments`;
+    readPalette();
+    counted = new Map(d.counted.map(([s, dir, v]) => [2 * s + dir, v]));
+    decode(d);
+    buildKnobs();
+    document.getElementById("histScale").onclick = () => { histFull = !histFull; drawHist(lastHist); };
+    if (d.flow) buildTrips(d.flow); else document.getElementById("modeTrips").hidden = true;
+    if (d.plan) buildPlan(d.plan); else document.getElementById("modePlan").hidden = true;
+    offsetExt = new deck.PathStyleExtension({ offset: true });
+    dashExt = new deck.PathStyleExtension({ offset: true, dash: true });
+    atlas = drawAtlas();
+    setZoom(INIT_ZOOM);
+    deckgl = new deck.Deck({
+      parent: document.getElementById("map"),
+      views: new deck.MapView({ repeat: false }),
+      initialViewState: { longitude: -73.965, latitude: 40.725, zoom: INIT_ZOOM, minZoom: 9, maxZoom: 19 },
+      controller: true,
+      pickingRadius: COARSE ? 16 : 6,  // a street within this many pixels of the pointer counts as hit
+      onViewStateChange: ({ viewState }) => {
+        syncPane(viewState);
+        const zoomed = setZoom(viewState.zoom), culled = cullArrows(viewState);
+        if (zoomed || culled) render();
+      },
+      getCursor: ({ isHovering }) => (isHovering ? "pointer" : "grab"),
+      getTooltip: mainTip,
+      onClick: (info) => {
+        if (!info.object) return;
+        if (info.layer && info.layer.id === "stations") showStation(info.object);
+        else select(info.object.e || info.object);
+      },
+      layers: [],
+    });
+    document.getElementById("status").hidden = true;
+    recompute();
+  }).catch((err) => {
+    document.getElementById("status").textContent = "The street data did not load: " + err.message + ". Reload the page to try again.";
+  });
+})();
+</script>
+
+</body></html>
