@@ -358,9 +358,7 @@ h2.later { margin-top: 18px; }
         sharrows and painted lanes some, a protected lane none.</li>
     </ol>
     <p class="note formula num">cost = length × (1 + traffic penalty × share the lane leaves)</p>
-    <p class="note">So a protected lane, or a street with no cars, costs exactly its length. If a block is so
-      stressful that walking the bike would be easier, or you can't ride it (wrong way on a
-      one-way, or a footpath), it's priced as a walk instead.</p>
+    <p class="note">So a protected lane, or a street with no cars, costs exactly its length.</p>
   </section>
 
   <section class="cost-only" aria-labelledby="legend-h">
@@ -428,7 +426,7 @@ h2.later { margin-top: 18px; }
     { group: "Share of that penalty a lane leaves" },
     { key: "exposure_painted", label: "Painted lane", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
     { key: "exposure_shared", label: "Sharrows or signed route", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
-    { group: "Walking the bike, × length" },
+    { group: "Walking the bike, × length", note: "A block costs the cheaper of riding it or walking the bike. Blocks you can't ride, like the wrong way on a one-way or a footpath, are always walked." },
     { key: "walk_factor", label: "On a sidewalk", min: 1.5, max: 16, step: 0.5, fmt: (v) => v.toFixed(1) + "×" },
     { key: "step_factor", label: "Up or down a step street", min: 2, max: 24, step: 0.5, fmt: (v) => v.toFixed(1) + "×" },
   ];
@@ -1695,7 +1693,7 @@ h2.later { margin-top: 18px; }
     for (const kn of KNOBS) {
       if (kn.group) {
         group = document.createElement("div"); group.className = "group";
-        group.innerHTML = `<h3>${kn.group}</h3>`; root.appendChild(group); continue;
+        group.innerHTML = `<h3>${kn.group}</h3>` + (kn.note ? `<p class="note">${kn.note}</p>` : ""); root.appendChild(group); continue;
       }
       const f = kn.fmt || fmt2;
       const row = document.createElement("div"); row.className = "knob";
