@@ -170,10 +170,21 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .share { width: 100%; border-collapse: collapse; font-size: 12px; }
 .share th { text-align: right; font-weight: 600; color: var(--ink-3); padding: 0 0 6px; font-size: 11px; }
 .share th:first-child { text-align: left; }
+.share th + th { padding-left: 12px; white-space: nowrap; }
 .share td { padding: 3px 0; }
-.share td.v { text-align: right; width: 34%; font-family: var(--font-num); }
-.share .bar { display: block; height: 3px; margin-top: 3px; border-radius: 2px; background: var(--ink-3); margin-left: auto; }
-.share td.v.safest .bar { background: var(--accent); }
+.share td.v { text-align: right; width: 22%; font-family: var(--font-num); }
+/* stacked share bars, one per routing, over a key table */
+.mix { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 10px; align-items: center; margin-bottom: 12px; }
+.mix > span { font-size: 12px; color: var(--ink-2); }
+.mix .stack { display: flex; height: 22px; border-radius: 3px; overflow: hidden; background: var(--rule); }
+.mix .stack i { display: flex; align-items: center; justify-content: center; font: 600 10px var(--font-num); font-style: normal; white-space: nowrap; overflow: hidden; }
+.mix .stack i + i { box-shadow: inset 1px 0 var(--plane); }
+.share .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; vertical-align: -1px; }
+.f-separated { background: #0c9252; color: #fff; }
+.f-painted { background: #01b8ee; color: #10222b; }
+.f-shared { background: #b35fa6; color: #fff; }
+.f-none { background: #9a978f; color: #161614; }
+.f-walked { background: var(--ink); color: var(--plane); }
 #corList { margin-top: 8px; }
 .ranked { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .ranked button {
@@ -194,7 +205,6 @@ h2.later { margin-top: 18px; }
 .key .rtoday { border-top-width: 7px; border-color: var(--line-mid); }
 .key .rplan { border-top-width: 3px; border-color: var(--ink); }
 .share tr.sep td { border-top: 1px solid var(--rule); padding-top: 6px; }
-.share td.v.plan .bar { background: var(--plan-new); }
 #card .key { margin-top: 10px; font-size: 12px; }
 #card table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
 #card .cmp th { font-weight: 600; font-size: 11px; color: var(--ink-3); text-align: right; padding: 0 0 4px 8px; }
@@ -249,6 +259,7 @@ h2.later { margin-top: 18px; }
 
   <section class="trips-only" aria-labelledby="share-h" hidden>
     <h2 id="share-h">Where the trip-miles go</h2>
+    <div class="mix" id="shareMix"></div>
     <table class="share" id="share"></table>
   </section>
 
@@ -290,6 +301,7 @@ h2.later { margin-top: 18px; }
 
   <section class="plan-only" data-pv="riders" aria-labelledby="gain-h" hidden>
     <h2 id="gain-h">What changes for riders</h2>
+    <div class="mix" id="gainMix"></div>
     <table class="share" id="gainTable"></table>
     <p class="note" id="gainNote"></p>
   </section>
@@ -1545,13 +1557,13 @@ h2.later { margin-top: 18px; }
     document.getElementById("planLine").textContent =
       `Saves ${pctText(eff.saved_share, 1)} of the stress on all ${(eff.trips / 1e6).toFixed(1)} million ${eff.year} Citi Bike trips, ` +
       `each routed again with it built; ${eff.helped_day.toLocaleString()} trips a day (${pctText(eff.helped_share)}) gain.`;
-    const bar = (v) => `<span class="bar" style="width:${(v * 100).toFixed(1)}%"></span>`;
+    document.getElementById("gainMix").innerHTML = shareBars([["Today", eff.share.today], ["With the plan", eff.share.plan]]);
     const pair = (label, a, b) => `<tr class="sep"><td>${label}</td><td class="v">${a}</td><td class="v">${b}</td></tr>`;
     document.getElementById("gainTable").innerHTML =
       `<thead><tr><th>Share of trip-miles</th><th>Today</th><th>With the plan</th></tr></thead><tbody>` +
       SHARE_ROWS.map(([key, label]) => {
         const a = eff.share.today[key] || 0, b = eff.share.plan[key] || 0;
-        return `<tr><td>${label}</td><td class="v">${pctText(a, 1)}${bar(a)}</td><td class="v plan">${pctText(b, 1)}${bar(b)}</td></tr>`;
+        return `<tr><td>${swatch(key)}${label}</td><td class="v">${pctText(a, 1)}</td><td class="v">${pctText(b, 1)}</td></tr>`;
       }).join("") +
       pair("Longer than the shortest routes", "+" + pctText(eff.detour.today, 1), "+" + pctText(eff.detour.plan, 1)) +
       `<tr><td>Cost per mile</td><td class="v">${eff.cost_per_km.today.toFixed(2)}×</td><td class="v">${eff.cost_per_km.plan.toFixed(2)}×</td></tr>` +
@@ -1612,14 +1624,24 @@ h2.later { margin-top: 18px; }
     ["separated", "Protected lane or path"], ["painted", "Painted lane"],
     ["shared", "Sharrows or shared street"], ["none", "No bike facility"], ["walked", "Walked"],
   ];
+  const swatch = (key) => `<i class="sw f-${key}"></i>`;
+  // One 100% bar per [label, shares] pair, a segment per facility; segments
+  // too narrow for their percentage go unlabeled (the table below has it).
+  function shareBars(pairs) {
+    return pairs.map(([label, sh]) => `<span>${label}</span><div class="stack">` +
+      SHARE_ROWS.map(([key, name]) => {
+        const v = sh[key] || 0;
+        return v > 0 ? `<i class="f-${key}" style="width:${(v * 100).toFixed(2)}%" title="${name}">${v >= 0.09 ? Math.round(v * 100) + "%" : ""}</i>` : "";
+      }).join("") + "</div>").join("");
+  }
   function buildTrips(flow) {
     const pct = (v) => ((v || 0) * 100).toFixed(1) + "%";
-    const bar = (v) => `<span class="bar" style="width:${((v || 0) * 100).toFixed(1)}%"></span>`;
+    document.getElementById("shareMix").innerHTML = shareBars([["Safest", flow.share.safest], ["Shortest", flow.share.shortest]]);
     document.getElementById("share").innerHTML =
       `<thead><tr><th>Facility</th><th>Safest</th><th>Shortest</th></tr></thead><tbody>` +
       SHARE_ROWS.map(([key, label]) => {
         const a = flow.share.safest[key], b = flow.share.shortest[key];
-        return `<tr><td>${label}</td><td class="v safest">${pct(a)}${bar(a)}</td><td class="v">${pct(b)}${bar(b)}</td></tr>`;
+        return `<tr><td>${swatch(key)}${label}</td><td class="v">${pct(a)}</td><td class="v">${pct(b)}</td></tr>`;
       }).join("") + "</tbody>";
     const list = document.getElementById("top");
     flow.top.forEach((row, i) => {
