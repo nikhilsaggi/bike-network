@@ -1086,7 +1086,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
       ({ stops, ticks } = flowRamp());
       document.getElementById("flowEnds").innerHTML = "";
       document.getElementById("flowNote").textContent = flowView === "safest"
-        ? `Every ${data.flow.year} Citi Bike trip between two stations, on its cheapest route under config.py's costs. Moving the cost knobs does not re-route them.`
+        ? `Every ${data.flow.year} Citi Bike trip between two stations, on its cheapest route under config.py's costs. (Moving the cost knobs does not re-route them.)`
         : "The same trips on the shortest route a bike may legally ride, ignoring traffic and lanes: the baseline the safety costs are judged against.";
     }
     document.getElementById("flowRamp").style.background = `linear-gradient(to right, ${stops.join(", ")})`;
