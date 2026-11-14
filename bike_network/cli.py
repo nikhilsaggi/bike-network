@@ -478,6 +478,12 @@ def run_effect() -> None:
     graph_plan = Graph.from_edges(plan)
     res = assignment.assign(graph_plan, routes[["o", "d", "trips"]], workers=WORKERS)
     pairs = effect.compare(routes, res.od)
+    # the shortest legal routes again: a new block can open a street a bike had to walk
+    short = assignment.assign(
+        Graph.from_edges(assignment.baseline_edges(plan)),
+        routes[["o", "d", "trips"]],
+        workers=WORKERS,
+    )
     summary = effect.summarize(
         pairs,
         edges,
@@ -486,6 +492,7 @@ def run_effect() -> None:
         res.edge_trips,
         flows["trips_shortest"].to_numpy(),
         new_rows,
+        trips_shortest_plan=short.edge_trips,
     )
     pct = lambda v: f"{v:.1%}"  # noqa: E731
     print(
@@ -504,6 +511,10 @@ def run_effect() -> None:
         print(
             f"    {kind:10s} {summary['share']['today'][kind]:6.1%} {summary['share']['plan'][kind]:6.1%}"
         )
+    print("  The same on the shortest routes:")
+    for kind in effect.MIX:
+        sh = summary["share_shortest"]
+        print(f"    {kind:10s} {sh['today'][kind]:6.1%} {sh['plan'][kind]:6.1%}")
 
     corridor = np.full(len(edges), -1)
     pos = pd.MultiIndex.from_frame(edges[effect.KEY]).get_indexer(

@@ -181,6 +181,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 /* stacked share bars, one per routing, over a key table */
 .mix { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 10px; align-items: center; margin-bottom: 12px; }
 .mix > span { font-size: 12px; color: var(--ink-2); }
+.mix > .mix-h { grid-column: 1 / -1; font-size: 11px; font-weight: 600; color: var(--ink-3); margin-bottom: -4px; }
+.mix > .mix-h:not(:first-child) { margin-top: 6px; }
+.share tr.group td { font-size: 11px; font-weight: 600; color: var(--ink-3); }
 .mix .stack { display: flex; height: 22px; border-radius: 3px; overflow: hidden; background: var(--rule); }
 .mix .stack i { display: flex; align-items: center; justify-content: center; font: 600 10px var(--font-num); font-style: normal; white-space: nowrap; overflow: hidden; }
 .mix .stack i + i { box-shadow: inset 1px 0 var(--plane); }
@@ -1690,17 +1693,25 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     document.getElementById("planLine").textContent =
       `Saves ${pctText(eff.saved_share, 1)} of the cost of all ${(eff.trips / 1e6).toFixed(1)} million ${eff.year} Citi Bike trips, ` +
       `each routed again with it built; ${eff.helped_day.toLocaleString()} trips a day (${pctText(eff.helped_share)}) gain.`;
-    document.getElementById("gainMix").innerHTML = shareBars([["Today", eff.share.today], ["With the plan", eff.share.plan]]);
+    // Safest routes, and (from builds that have it) the shortest legal routes, today and with the plan.
+    const short = eff.share_shortest;
+    const bars = (sh) => shareBars([["Today", sh.today], ["With the plan", sh.plan]]);
+    document.getElementById("gainMix").innerHTML = short
+      ? `<div class="mix-h">Safest routes</div>${bars(eff.share)}<div class="mix-h">Shortest routes</div>${bars(short)}`
+      : bars(eff.share);
     const pair = (label, a, b) => `<tr class="sep"><td>${label}</td><td class="v">${a}</td><td class="v">${b}</td></tr>`;
+    const mixRows = (sh) => SHARE_ROWS.map(([key, label]) => {
+      const a = sh.today[key] || 0, b = sh.plan[key] || 0;
+      return `<tr><td>${swatch(key)}${label}</td><td class="v">${pctText(a, 1)}</td><td class="v">${pctText(b, 1)}</td></tr>`;
+    }).join("");
+    const group = (label, sep) => `<tr class="group${sep ? " sep" : ""}"><td colspan="3">${label}</td></tr>`;
     document.getElementById("gainTable").innerHTML =
       `<thead><tr><th>Share of trip-miles</th><th>Today</th><th>With improvements</th></tr></thead><tbody>` +
-      SHARE_ROWS.map(([key, label]) => {
-        const a = eff.share.today[key] || 0, b = eff.share.plan[key] || 0;
-        return `<tr><td>${swatch(key)}${label}</td><td class="v">${pctText(a, 1)}</td><td class="v">${pctText(b, 1)}</td></tr>`;
-      }).join("") +
+      (short ? group("Safest routes") : "") + mixRows(eff.share) +
       pair("Longer than the shortest routes", "+" + pctText(eff.detour.today, 1), "+" + pctText(eff.detour.plan, 1)) +
       `<tr><td>Cost per mile</td><td class="v">${eff.cost_per_km.today.toFixed(2)}×</td><td class="v">${eff.cost_per_km.plan.toFixed(2)}×</td></tr>` +
       `<tr><td>Miles walked a year</td><td class="v">${Math.round(mi(eff.walked_km.today))}k</td><td class="v">${Math.round(mi(eff.walked_km.plan))}k</td></tr>` +
+      (short ? group("Shortest routes", true) + mixRows(short) : "") +
       "</tbody>";
     document.getElementById("gainNote").textContent =
       `The same ${(eff.trips / 1e6).toFixed(1)} million trips between the same stations, routed again with the improvements built: where they would ride, not new riders. ` +

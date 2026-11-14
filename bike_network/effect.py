@@ -88,13 +88,16 @@ def summarize(
     trips_plan: np.ndarray,
     trips_shortest: np.ndarray,
     new_rows: np.ndarray,
+    trips_shortest_plan: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Sum up the plan's effect on the year's trips, as plain numbers for the viewer and the log.
 
     ``trips_*`` are trips a year on each row of ``edges`` (``plan`` for
     ``trips_plan``): routed today, with the plan, and on the shortest legal
     route. Shares are of trips or of trip-km; ``detour`` is how much longer
-    the trip-km are than on the shortest routes.
+    the trip-km are than on the shortest routes. Given ``trips_shortest_plan``
+    (on ``plan``'s rows, the shortest legal routes with the plan built),
+    ``share_shortest`` is the same facility mix for the shortest routes.
     """
     w = pairs["trips"].to_numpy()
     gain, helped, same = gains(pairs)
@@ -109,6 +112,12 @@ def summarize(
     for when, e, t in (("today", edges, trips_today), ("plan", plan, trips_plan)):
         by = trip_km_by_facility(e, t)
         share[when] = {k: round(float(by.get(k, 0.0) / by.sum()), 4) for k in MIX}
+    share_shortest = None
+    if trips_shortest_plan is not None:
+        share_shortest = {}
+        for when, e, t in (("today", edges, trips_shortest), ("plan", plan, trips_shortest_plan)):
+            by = trip_km_by_facility(e, t)
+            share_shortest[when] = {k: round(float(by.get(k, 0.0) / by.sum()), 4) for k in MIX}
     walked = {when: float((w * pairs[f"walk_m_{when}"]).sum() / 1000) for when in ("today", "plan")}
     return {
         "year": config.DEMAND_YEAR,
@@ -134,6 +143,7 @@ def summarize(
         },
         "walked_km": {k: round(v) for k, v in walked.items()},
         "share": share,
+        **({"share_shortest": share_shortest} if share_shortest else {}),
         "on_new": round(
             float((trips_plan[new_rows] * length[new_rows]).sum() / 1000 / km["plan"]), 4
         ),

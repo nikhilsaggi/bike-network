@@ -114,6 +114,30 @@ def test_riders_move_to_the_new_lane_and_an_upgrade_keeps_its_route():
     assert s["share"]["plan"]["separated"] > s["share"]["today"]["separated"]
     # the avenue's 2 km for 10 trips and the painted street's 1 km for 4, of 39.4 trip-km
     assert s["on_new"] == pytest.approx((10 * 2 + 4 * 1) / (10 * 2 + 4 * 1 + 7 * 2.2), abs=1e-4)
+    assert "share_shortest" not in s
+
+
+def test_shortest_routes_mix_with_the_plan():
+    _, edges, plan, rows, *_, today, after, short = routed()
+    short_plan = assignment.assign(Graph.from_edges(assignment.baseline_edges(plan)), OD)
+    pairs = effect.compare(today.od, after.od)
+    s = effect.summarize(
+        pairs,
+        edges,
+        plan,
+        today.edge_trips,
+        after.edge_trips,
+        short.edge_trips,
+        rows,
+        trips_shortest_plan=short_plan.edge_trips,
+    )
+    sh = s["share_shortest"]
+    assert set(sh) == {"today", "plan"}
+    for when in sh:
+        assert sum(sh[when].values()) == pytest.approx(1, abs=1e-3)
+    # the shortest routes take the avenue either way; with the plan it is protected
+    assert sh["plan"]["separated"] > sh["today"]["separated"]
+    assert sh["plan"]["painted"] == 0
 
 
 def test_route_paths_are_the_assigned_routes():
