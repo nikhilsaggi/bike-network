@@ -200,6 +200,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .ranked button:hover .tname { text-decoration: underline; }
 .ranked button[aria-pressed="true"] .tname { font-weight: 600; }
 .ranked button[aria-pressed="true"] .rank { color: var(--ink); }
+/* the picked busiest facility: the map's lit yellow, so row and blocks read as one */
+#top button { padding-left: 6px; padding-right: 6px; border-left: 3px solid transparent; }
+#top button[aria-pressed="true"] { background: var(--surface); border-left-color: #ffc400; }
 .ranked .rank { color: var(--ink-3); font-family: var(--font-num); font-size: 12px; }
 .ranked .tname { min-width: 0; }
 .ranked .tname small { display: block; color: var(--ink-3); font-size: 11px; }
