@@ -110,7 +110,7 @@ pair's route), `plan_stations.parquet` (each station's trips and the share
 of their cost saved), `plan_examples.parquet` (one real trip per corridor,
 both routes) and `plan_effect.json` (the totals). The map's New corridors
 mode then has two more views: Where riders go (trips a day with the plan
-minus today, or today's map and the plan's side by side; the facility mix
+minus today; the facility mix
 of the trip-km; the streets riders move to and leave; and the example trips
 drawn both ways, sorted by the cost they save, leaving out short trips,
 trips that keep today's route, and any that mostly repeats one above it) and Who gains (each station by the share of

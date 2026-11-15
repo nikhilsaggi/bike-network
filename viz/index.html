@@ -322,13 +322,9 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
 
   <section class="plan-only" data-pv="riders" aria-labelledby="shift-h" hidden>
     <h2 id="shift-h">Change in trips a day, each direction</h2>
-    <div class="seg small" role="group" aria-label="How to compare today and the plan">
-      <button type="button" data-compare="change" aria-pressed="true">Change</button>
-      <button type="button" data-compare="split" aria-pressed="false">Side by side</button>
-    </div>
     <div id="shiftRamp" class="ramp"></div>
     <div class="ramp-ticks num" id="shiftTicks"></div>
-    <div class="ramp-ends" id="shiftEnds"><span>Fewer with improvements</span><span>More</span></div>
+    <div class="ramp-ends"><span>Fewer with improvements</span><span>More</span></div>
     <p class="note" id="shiftNote"></p>
   </section>
 
@@ -498,9 +494,9 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
   let selectedFac = null, facEdges = [];
   let selectedStreet = null, streetEdges = [];  // "join:i" or "leave:i", in the riders view's street lists
   const EX_SHOWN = 8, ST_SHOWN = 8;
-  // "change" maps trips a day with the plan minus today; "split" puts today's
-  // map and the plan's side by side, the second in its own deck.gl pane.
-  let compare = "change", planDeck = null, paneExt = null, planColors, planWidths, shiftNotes = {};
+  // An example trip puts today's route and the plan's side by side, the
+  // second in its own deck.gl pane.
+  let planDeck = null, paneExt = null, planColors, planWidths;
   const SPLIT_STACK_PX = 640;  // a map narrower than this stacks the two panes
   const SAVED_MAX = 0.2;     // share of a station's cost saved at which its color saturates
   const ST_LIST_MIN = 100;   // trips a day for a station to make the list
@@ -1277,7 +1273,6 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     corridors: "Where new protected lanes would save Citi Bike riders the most cost, scored as whole corridors rather than block by block.",
     riders: "The same Citi Bike trips routed again with the improvements built. Color and width are the change in trips a day along each street, each direction.",
     stations: "Each Citi Bike station by how much less its trips would cost with the improvements built.",
-    split: "The same Citi Bike trips today and with the improvements built, side by side. Color and width are trips a day along each street, each direction.",
   };
   const pctText = (v, digits = 0) => (v * 100).toFixed(digits) + "%";
   const distText = (m) => (mi(m) < 0.1 ? `${Math.round(m * FT_PER_M / 10) * 10} ft` : `${mi(m).toFixed(1)} mi`);
@@ -1288,10 +1283,9 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
   // behind the dots. An example trip: nothing but its own routes, today's on
   // the main map and the plan's in the pane beside it.
   function paintEffect() {
-    const m = edges.length, riders = planView === "riders" && selectedExample === null;
-    const split = riders && compare === "split", shift = riders && !split;
+    const m = edges.length, shift = planView === "riders" && selectedExample === null;
     const lanes = planView === "stations", trip = selectedExample !== null && planDeck;
-    if ((split || trip) && (!planColors || planWidths.length !== m)) { planColors = new Uint8Array(4 * m); planWidths = new Float32Array(m); }
+    if (trip && (!planColors || planWidths.length !== m)) { planColors = new Uint8Array(4 * m); planWidths = new Float32Array(m); }
     if (trip) {
       for (let i = 0; i < m; i++) {
         planColors[4 * i] = palette.faint[0]; planColors[4 * i + 1] = palette.faint[1]; planColors[4 * i + 2] = palette.faint[2];
@@ -1300,13 +1294,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     }
     for (let i = 0; i < m; i++) {
       const e = edges[i];
-      if (split) {
-        const [rgb, w] = flowStyle(data[e.d === 0 ? "tf" : "tr"][e.s] / 365);
-        setRgb(i, rgb, w);
-        const [prgb, pw] = flowStyle(data[e.d === 0 ? "pf" : "pr"][e.s] / 365);
-        planColors[4 * i] = prgb[0]; planColors[4 * i + 1] = prgb[1]; planColors[4 * i + 2] = prgb[2]; planColors[4 * i + 3] = 255;
-        planWidths[i] = pw;
-      } else if (shift) {
+      if (shift) {
         const v = (data[e.d === 0 ? "pf" : "pr"][e.s] - data[e.d === 0 ? "tf" : "tr"][e.s]) / 365;
         if (Math.abs(v) < SHIFT_FAINT) setRgb(i, palette.faint, 0.6);
         else { const [rgb, w] = diffStyle(v); setRgb(i, rgb, w); }
@@ -1321,13 +1309,9 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     return mix(palette.flowLo, palette.flowHi, 0.12 + 0.88 * Math.min(v / SAVED_MAX, 1));
   }
   function drawEffectLegends() {
-    const split = compare === "split";
-    const d = split ? flowRamp() : diffRamp(SHIFT_FAINT, [-1000, -SHIFT_FAINT, SHIFT_FAINT, 1000]);
+    const d = diffRamp(SHIFT_FAINT, [-1000, -SHIFT_FAINT, SHIFT_FAINT, 1000]);
     document.getElementById("shiftRamp").style.background = `linear-gradient(to right, ${d.stops.join(", ")})`;
     document.getElementById("shiftTicks").innerHTML = d.ticks.join("");
-    document.getElementById("shiftEnds").hidden = split;
-    document.getElementById("shift-h").textContent = split ? "Trips a day, each direction" : "Change in trips a day, each direction";
-    document.getElementById("shiftNote").textContent = shiftNotes[compare] || "";
     const stops = [], ticks = [];
     for (let i = 0; i <= 20; i++) stops.push(`${css(stationColor(SAVED_MAX * Math.max(i, 0.01) / 20))} ${i * 5}%`);
     for (const v of [0, 0.05, 0.1, 0.15, 0.2]) {
@@ -1459,7 +1443,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
   }
 
   function setPlanView(v) {
-    compare = "change"; syncCompare(); closeSplit();
+    closeSplit();
     planView = v; selectedExample = null; route = NO_ROUTE; selectedStation = null;
     if (selectedStreet !== null) selectStreet(selectedStreet);
     deselect(); syncPlanView(); renderExamples(); recompute();
@@ -1469,18 +1453,17 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     document.getElementById("planViews").hidden = !on || !hasEffect();
     document.querySelectorAll("[data-pview]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.pview === planView)));
     document.querySelectorAll("[data-pv]").forEach((el) => { el.hidden = !on || !el.dataset.pv.split(" ").includes(planView); });
-    if (on) document.getElementById("modeNote").textContent = PLAN_LEDE[planView === "riders" && compare === "split" ? "split" : planView];
+    if (on) document.getElementById("modeNote").textContent = PLAN_LEDE[planView];
   }
   // Escape and the cards' × close an example trip or a station too.
   function closeEffect() {
     selectedStation = null; deselect();
     if (selectedExample !== null) { clearExample(); if (mode === "plan") { paintPlan(); version++; render(); } }
   }
-  // An example trip opens the side-by-side panes; closing it shuts them
-  // unless the riders view was side by side already.
+  // An example trip opens the side-by-side panes; closing it shuts them.
   function clearExample() {
     selectedExample = null; route = NO_ROUTE;
-    if (compare !== "split") closeSplit();
+    closeSplit();
     renderExamples();
   }
 
@@ -1619,20 +1602,9 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
   }
 
   // ---------- side by side ----------
-  // The main map shrinks to the left (or top) half and shows today's trips;
-  // a second deck.gl pane beside it shows the same trips with the plan built.
-  // Each follows the other's pan and zoom.
-  function setCompare(v) {
-    if (v === compare && selectedExample === null) return;
-    compare = v; syncCompare();
-    selectedExample = null; route = NO_ROUTE;
-    deselect(); renderExamples();
-    if (v === "split") openSplit(); else closeSplit();
-    syncPlanView(); recompute();
-  }
-  function syncCompare() {
-    document.querySelectorAll("[data-compare]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.compare === compare)));
-  }
+  // For an example trip, the main map shrinks to the left (or top) half and
+  // shows today's route; a second deck.gl pane beside it shows the route with
+  // the plan built. Each follows the other's pan and zoom.
   const VIEW_KEYS = ["longitude", "latitude", "zoom", "pitch", "bearing"];
   function pickView(vs) {
     const out = { minZoom: 9, maxZoom: 19 };
@@ -1751,14 +1723,10 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
         moved += v; if (Math.abs(p[s] - t[s]) / 365 < SHIFT_FAINT) small += v;
       }
     }
-    shiftNotes = {
-      change: `Trips a day with the improvements built minus today. Blue is where riders would move to, red the streets they would leave. ` +
+    document.getElementById("shiftNote").textContent =
+      `Trips a day with the improvements built minus today. Blue is where riders would move to, red the streets they would leave. ` +
         `A change of under ${SHIFT_FAINT} a day is left faint: ${pctText(small / moved)} of the riding that moves. ` +
-        `${pctText(eff.on_new)} of all trip-miles would ride the new lane.`,
-      split: `Every trip on its safest route: today on the left, with the improvements built on the right (today on top on a narrow screen). ` +
-        `The same trips, so riding one map gains, the other loses. Pan or zoom either; both follow.`,
-    };
-    document.querySelectorAll("[data-compare]").forEach((b) => { b.onclick = () => setCompare(b.dataset.compare); });
+        `${pctText(eff.on_new)} of all trip-miles would ride the new lane.`;
 
     eff.examples.forEach((x, i) => x.corridors.forEach((ci) => { if (!exampleOf.has(ci)) exampleOf.set(ci, i); }));
     renderExamples();
@@ -1879,7 +1847,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     selectedExample = null; route = NO_ROUTE; selectedStation = null; syncPlanView(); renderExamples();
     if (selectedFac !== null) selectFacility(selectedFac);
     if (selectedStreet !== null) selectStreet(selectedStreet);
-    compare = "change"; syncCompare(); closeSplit();
+    closeSplit();
     document.getElementById("card").hidden = true; selected = null; selectedCorridor = null;
     recompute();
   }
