@@ -204,9 +204,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .ranked button:hover .tname { text-decoration: underline; }
 .ranked button[aria-pressed="true"] .tname { font-weight: 600; }
 .ranked button[aria-pressed="true"] .rank { color: var(--ink); }
-/* the picked busiest facility: the map's lit yellow, so row and blocks read as one */
-#top button { padding-left: 6px; padding-right: 6px; border-left: 3px solid transparent; }
-#top button[aria-pressed="true"] { background: var(--surface); border-left-color: #ffc400; }
+/* the picked busiest facility: the map's lit yellow, so row and blocks read as one;
+   the street riders move to or leave that was last gone to, likewise */
+#top button, #joinList button, #leaveList button { padding-left: 6px; padding-right: 6px; border-left: 3px solid transparent; }
+#top button[aria-pressed="true"], #joinList button[aria-pressed="true"], #leaveList button[aria-pressed="true"] { background: var(--surface); border-left-color: #ffc400; }
 .ranked .rank { color: var(--ink-3); font-family: var(--font-num); font-size: 12px; }
 .ranked .tname { min-width: 0; }
 .ranked .tname small { display: block; color: var(--ink-3); font-size: 11px; }
@@ -227,7 +228,8 @@ h2.later { margin-top: 18px; }
 #card .key { margin-top: 10px; font-size: 12px; }
 table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
 .cmp th { font-weight: 600; font-size: 11px; color: var(--ink-3); text-align: right; padding: 0 0 4px 8px; }
-.cmp td { text-align: right; font-family: var(--font-num); padding: 2px 0 2px 8px; }
+.cmp td { text-align: right; font-family: var(--font-num); padding: 2px 0 2px 8px; white-space: nowrap; }
+.cmp td:first-child { white-space: normal; } /* the label wraps, not "510 ft" */
 .cmp th:first-child, .cmp td:first-child { text-align: left; padding-left: 0; font-family: var(--font-ui); color: var(--ink-3); }
 .cmp tr.total td { border-top: 1px solid var(--rule); padding-top: 4px; color: var(--ink); }
 /* an example trip's detail, under its row in the list */
@@ -1517,7 +1519,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
         <tr><td>Cost, cost-miles</td><td>${mi(x.today.cost).toFixed(1)}</td><td>${mi(x.plan.cost).toFixed(1)}</td></tr>
       </tbody></table>
       <div class="ends"><span><i class="dot"></i>Start</span><span><i class="dot end"></i>End</span></div>
-      <div class="verdict">This trip costs ${pctText(saved)} less, and is taken ${x.trips_day.toLocaleString()} times a day. A route's cost is its length weighted by traffic and lanes, as on the Cost map. Select the trip again or press Escape to close it.</div>`;
+      <div class="verdict">This trip costs ${pctText(saved)} less.</div>`;
     return div;
   }
 
@@ -1552,7 +1554,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
   function rankedItem(rank, name, sub, value, under, onclick) {
     const li = document.createElement("li");
     li.innerHTML = `<button type="button"><span class="rank">${rank}</span><span class="tname"></span>
-      <span class="tv">${value}<small>${under}</small></span></button>`;
+      <span class="tv">${value}${under ? `<small>${under}</small>` : ""}</span></button>`;
     const n = li.querySelector(".tname");
     n.textContent = name;
     const small = document.createElement("small"); small.textContent = sub; n.appendChild(small);
@@ -1575,7 +1577,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     rows.forEach((i) => {
       const x = ex[i], at = listed.indexOf(i);
       const li = rankedItem(at >= 0 ? at + 1 : "·", `${x.from} → ${x.to}`, `for the ${viaText(x)}`,
-        `−${pctText(1 - x.plan.cost / x.today.cost)}`, `${x.trips_day.toLocaleString()}/day`,
+        `−${pctText(1 - x.plan.cost / x.today.cost)}`, "",
         () => (i === selectedExample ? closeEffect() : showExample(i)));
       const on = i === selectedExample;
       li.querySelector("button").setAttribute("aria-pressed", String(on));
@@ -1586,7 +1588,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     more.hidden = listed.length <= EX_SHOWN;
     more.textContent = exAll ? `Show the first ${EX_SHOWN}` : `Show all ${listed.length.toLocaleString()}`;
     document.getElementById("exNote").textContent =
-      `One real trip for each corridor, among the station pairs that gain most, sorted by the cost saved (trips a day times the drop per trip), with the share saved and trips a day. ` +
+      `One real trip for each corridor, among the station pairs that gain most, sorted by the cost saved across all of their Citi Bike trips, with the share of each trip's cost saved. ` +
       `${(ex.length - listed.length).toLocaleString()} of the ${ex.length.toLocaleString()} are left off: too short, keeping mostly today's route, or sharing most of their streets with one above. ` +
       `Select one to see both routes.`;
   }
@@ -1737,10 +1739,22 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     renderExamples();
     document.getElementById("exMore").onclick = () => { exAll = !exAll; renderExamples(); };
 
+    // One street picked across both lists; picking it again lets it go.
+    const pickStreet = (btn, bbox) => {
+      const on = btn.getAttribute("aria-pressed") !== "true";
+      document.querySelectorAll("#joinList button, #leaveList button").forEach((b) => b.setAttribute("aria-pressed", "false"));
+      btn.setAttribute("aria-pressed", String(on));
+      if (on) flyTo(bbox);
+    };
     const streets = (id, items) => {
       const list = document.getElementById(id);
-      items.forEach((r, i) => list.appendChild(rankedItem(i + 1, titleCase(r.street), r.boro,
-        `${r.km_day > 0 ? "+" : "−"}${Math.round(mi(Math.abs(r.km_day) * 1000)).toLocaleString()}`, "mi/day", () => flyTo(r.bbox))));
+      items.forEach((r, i) => {
+        const li = rankedItem(i + 1, titleCase(r.street), r.boro,
+          `${r.km_day > 0 ? "+" : "−"}${Math.round(mi(Math.abs(r.km_day) * 1000)).toLocaleString()}`, "mi/day", () => pickStreet(btn, r.bbox));
+        const btn = li.querySelector("button");
+        btn.setAttribute("aria-pressed", "false");
+        list.appendChild(li);
+      });
     };
     streets("joinList", eff.shifts.join);
     streets("leaveList", eff.shifts.leave);
