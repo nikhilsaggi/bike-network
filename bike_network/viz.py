@@ -24,6 +24,7 @@ import shapely
 from . import config
 from .corridors import KINDS
 from .effect import MIX, place_names
+from .network import room_ft
 from .pages import page
 
 if TYPE_CHECKING:
@@ -33,7 +34,7 @@ QUANT = 1e5
 # The payload's layout. Bump it with any change the viewer has to be changed to
 # read, and ``DATA_FORMAT`` in viz/index.html with it: the Pages workflow only
 # redeploys a new page over the published data when the two numbers agree.
-FORMAT = 1
+FORMAT = 2
 SIMPLIFY_FT = 3.0
 TRAF_CODE = {"T": 1, "W": 2, "A": 3}  # anything else: no cars
 FAC_CODE = {"none": 0, "shared": 1, "painted": 2, "separated": 3}
@@ -60,11 +61,21 @@ def knobs() -> dict[str, Any]:
         "walk_factor": config.WALK_FACTOR,
         "step_factor": config.STEP_FACTOR,
         "default_speed": config.DEFAULT_SPEED_MPH,
+        "room_ref": config.ROOM_REFERENCE_FT,
+        "room_min": config.ROOM_MIN_FT,
+        "room_max": config.ROOM_MAX_FT,
+        "room_exponent": config.ROOM_EXPONENT,
+        "room_max_discount": config.ROOM_MAX_DISCOUNT,
+        "pave_good": config.PAVEMENT_GOOD,
+        "pave_per_point": config.PAVEMENT_PER_POINT,
     }
 
 
 def pack_attributes(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
-    """Per segment: packed flags, lanes, speed, length and each direction's volume.
+    """Per segment: packed flags, lanes, speed, length, volumes, room and pavement.
+
+    Volume is per direction; room (:func:`network.room_ft`) and the pavement
+    rating are None where unknown.
 
     ``seg`` must carry ``vol_fwd``/``vol_rev`` (:func:`network.direction_volumes`).
     """
@@ -75,6 +86,7 @@ def pack_attributes(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
     rev = seg["rev"].fillna("none").map(FAC_CODE).to_numpy(dtype=np.int64)
     rw = seg["rw_type"].to_numpy()
     shared = seg["shared_street"].to_numpy() if "shared_street" in seg else np.zeros(len(seg), bool)
+    pave = seg["pavement"] if "pavement" in seg else pd.Series(np.nan, index=seg.index)
     packed = (
         traf
         | (truck << 2)
@@ -93,9 +105,16 @@ def pack_attributes(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
             "len": seg["length_m"].round(1),
             "vf": seg["vol_fwd"].round().astype(int),
             "vr": seg["vol_rev"].round().astype(int),
+            "room": _or_none(room_ft(seg).round(2)),
+            "pave": _or_none(pave.round(2)),
         },
         index=seg.index,
     )
+
+
+def _or_none(values: pd.Series) -> pd.Series:
+    """Values as objects with None for NaN, so JSON carries null."""
+    return values.astype(object).where(values.notna(), None)
 
 
 def _morton(x: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -436,6 +455,8 @@ def export(
         "len": attrs["len"].to_numpy()[order].tolist(),
         "vf": attrs["vf"].to_numpy()[order].tolist(),
         "vr": attrs["vr"].to_numpy()[order].tolist(),
+        "room": attrs["room"].to_numpy()[order].tolist(),
+        "pave": attrs["pave"].to_numpy()[order].tolist(),
         "counted": measured,
     }
 

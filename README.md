@@ -9,8 +9,9 @@ All inputs are public:
 
 | Source | Used for |
 |---|---|
-| [LION](https://www.nyc.gov/content/planning/pages/resources/datasets/lion) (NYC DCP), release `26c` | streets, paths, traffic direction, travel lanes, posted speed, truck routes |
+| [LION](https://www.nyc.gov/content/planning/pages/resources/datasets/lion) (NYC DCP), release `26c` | streets, paths, traffic direction, travel lanes, posted speed, truck routes, street width and parking lanes |
 | [NYC Bike Routes](https://data.cityofnewyork.us/dataset/New-York-City-Bike-Routes/mzxg-pwib) (NYC DOT) | bike facility in each direction, joined on LION `SegmentID` |
+| [Street Pavement Ratings](https://data.cityofnewyork.us/d/6yyb-pb25) (NYC DOT) | each block's latest 1-10 pavement rating since 2018, matched to LION by geometry |
 
 ## Run
 
@@ -124,7 +125,7 @@ is walked on the sidewalk, whichever is cheaper:
 
 - **Riding** is legal with the flow of traffic, and in any direction DOT has a
   bike facility for (contraflow lanes, two-way greenways).
-  `factor = 1 + exposure * traffic_penalty`.
+  `factor = 1 + exposure * traffic_penalty + roughness`.
 - **Walking** the bike is legal on any sidewalk in either direction:
   `factor = 8` (12 on a step street). Vehicle-only roads have no walk edge.
 
@@ -138,11 +139,24 @@ is walked on the sidewalk, whichever is cheaper:
 for each doubling of traffic above a quiet street's 1,600 vehicles a day,
 plus 0.15 per 5 mph over 25, plus 0.2 / 0.3 / 0.5 for a limited-local /
 local / through truck route. Traffic is the volume in the rider's direction
-(the oncoming stream, in a contraflow lane). All of these numbers live in
+(the oncoming stream, in a contraflow lane).
+
+Where the rider shares the lane with cars (no facility, or sharrows), the
+penalty is scaled by room to be passed: 12 ft over the feet of roadway in
+the rider's direction (curb to curb less 8 ft per parking lane, halved on a
+two-way street, held to 7-24 ft), but room never takes more than 1.25 off.
+A one-way street with two lanes is easier to share than a two-way street of
+the same width; a wide arterial stays an arterial. A painted lane is the
+rider's room, so paint keeps its 0.3 whatever the width.
+
+`roughness` is 0.05 for each point DOT's pavement rating falls below good
+(8 of 10), and 0 on an unrated block. All of these numbers live in
 `bike_network/config.py`.
 
 The traffic weight and the walking factor are calibrated against DOT's bike
-counters; the rest are judgment. **[docs/methodology.md](docs/methodology.md)**
+counters; the room and pavement terms were checked against them (the
+counters score them as well as or slightly better than leaving them out);
+the rest are judgment. **[docs/methodology.md](docs/methodology.md)**
 sets out how each weight was chosen and the evidence for it.
 
 ## Traffic volume

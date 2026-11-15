@@ -456,6 +456,10 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     { key: "truck_limited", label: "Truck route, limited local", min: 0, max: 1.5, step: 0.05 },
     { key: "truck_local", label: "Truck route, local", min: 0, max: 1.5, step: 0.05 },
     { key: "truck_through", label: "Truck route, through", min: 0, max: 1.5, step: 0.05 },
+    { key: "room_exponent", label: "Room to be passed, sharing the lane (0 ignores street width)", min: 0, max: 2, step: 0.1, fmt: (v) => v.toFixed(1) },
+    { key: "room_max_discount", label: "Most that room takes off the penalty", min: 0, max: 3, step: 0.05 },
+    { group: "Rough pavement, added to riding" },
+    { key: "pave_per_point", label: "Each point of DOT's rating below good (8)", min: 0, max: 0.3, step: 0.01 },
     { group: "Share of that penalty a lane leaves" },
     { key: "exposure_painted", label: "Painted lane", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
     { key: "exposure_shared", label: "Sharrows or signed route", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
@@ -464,7 +468,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     { key: "step_factor", label: "Up or down a step street", min: 2, max: 24, step: 0.5, fmt: (v) => v.toFixed(1) + "×" },
   ];
   // The data.json layout this page reads: FORMAT in bike_network/viz.py.
-  const DATA_FORMAT = 1;
+  const DATA_FORMAT = 2;
   const fmt2 = (v) => v.toFixed(2);
   // Distances are meters in the data; the page shows US units.
   const M_PER_MI = 1609.344, FT_PER_M = 3.28084;
@@ -574,7 +578,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     edgeOf = new Int32Array(2 * n).fill(-1);
     for (let i = 0; i < n; i++) {
       for (let dir = 0; dir < 2; dir++) {
-        if (BikeCost.edge(d.p[i], d.speed[i], d.vf[i], d.vr[i], dir, k) === null) continue;
+        if (BikeCost.edge(d.p[i], d.speed[i], d.vf[i], d.vr[i], dir, k, d.room[i], d.pave[i]) === null) continue;
         let path = segPaths[i];
         if (dir === 1) {
           const r = new Float64Array(path.length), m = path.length / 2;
@@ -621,7 +625,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     overlay = [];
     for (let i = 0; i < m; i++) {
       const e = edges[i], s = e.s;
-      const r = BikeCost.edge(data.p[s], data.speed[s], data.vf[s], data.vr[s], e.d, k);
+      const r = BikeCost.edge(data.p[s], data.speed[s], data.vf[s], data.vr[s], e.d, k, data.room[s], data.pave[s]);
       const len = data.len[s];
       let rgb;
       if (r === null) { kind[i] = 2; factor[i] = 0; rgb = palette.faint; }
@@ -943,7 +947,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
       const v = flowView === "diff" ? perDay(e, "t") - perDay(e, "s") : perDay(e, flowView === "safest" ? "t" : "s");
       return `${flowView === "diff" && v > 0 ? "+" : ""}${v.toLocaleString()} trips/day`;
     }
-    const r = BikeCost.edge(data.p[e.s], data.speed[e.s], data.vf[e.s], data.vr[e.s], e.d, k);
+    const r = BikeCost.edge(data.p[e.s], data.speed[e.s], data.vf[e.s], data.vr[e.s], e.d, k, data.room[e.s], data.pave[e.s]);
     return r.ride ? `${fmt2(r.factor)}×` : `walked ${r.factor.toFixed(1)}×`;
   }
   // Both directions of the selected block, in a fixed order so they do not
@@ -979,10 +983,11 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     if (mode === "plan" && planView !== "corridors") { showShiftCard(e); return; }
     if (mode === "plan" && planIndex.has(2 * e.s + e.d)) { showCorridorCard(planIndex.get(2 * e.s + e.d)[0], e); return; }
     const s = e.s, p = data.p[s];
-    const r = BikeCost.edge(p, data.speed[s], data.vf[s], data.vr[s], e.d, k);
+    const r = BikeCost.edge(p, data.speed[s], data.vf[s], data.vr[s], e.d, k, data.room[s], data.pave[s]);
     const traf = p & 3;
     const cars = traf === 0 ? "None" : traf === 1 ? "Two-way" : (traf === (e.d === 0 ? 2 : 3) ? "One-way, with you" : "One-way, against you");
     const lanes = data.lanes[s], speed = data.speed[s], len = data.len[s];
+    const room = data.room[s], pave = data.pave[s];
     let traffic = "";
     if (traf !== 0) {
       const oncoming = traf !== 1 && traf !== (e.d === 0 ? 2 : 3);
@@ -1007,7 +1012,9 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
         ${traffic}
         <dt>Speed limit</dt><dd>${traf === 0 ? "–" : speed > 0 ? speed + " mph" : "25 mph (default)"}</dd>
         <dt>Truck route</dt><dd>${TRUCK_LABEL[(p >> 2) & 3]}</dd>
+        <dt>Room this way</dt><dd>${traf === 0 ? "–" : room == null ? "width not recorded" : `${Math.round(room)} ft · ${r.sharesLane ? `penalty ×${fmt2(r.roomScale)}` : "the lane is your room"}`}</dd>
         <dt>Traffic penalty</dt><dd>${fmt2(r.penalty)}</dd>
+        <dt>Pavement</dt><dd>${pave == null ? "not rated" : `${pave.toFixed(1)} of 10${r.rough >= 0.005 ? ` · +${fmt2(r.rough)}` : ""}`}</dd>
         ${data.tf ? `<dt>Citi Bike trips a day</dt><dd>${perDay(e, "t").toLocaleString()} safest · ${perDay(e, "s").toLocaleString()} shortest</dd>` : ""}
       </dl>
       <div class="verdict">${verdict}</div>`;
@@ -1389,7 +1396,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
   // whatever its lane, and with the plan a new lane is protected.
   function routeFacility(e, built) {
     if (built && isNew(e)) return "separated";
-    const s = e.s, r = BikeCost.edge(data.p[s], data.speed[s], data.vf[s], data.vr[s], e.d, defaults);
+    const s = e.s, r = BikeCost.edge(data.p[s], data.speed[s], data.vf[s], data.vr[s], e.d, defaults, data.room[s], data.pave[s]);
     return !r || !r.ride ? "walked" : BikeCost.FACILITY[r.facility];
   }
   // The busiest facility picked from the list, lit as a selected block is.
@@ -1887,6 +1894,9 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
       `VOLUME_REFERENCE = ${Math.round(k.volume_ref)}`,
       `TRAFFIC_PER_5_MPH = ${n(k.per_5_mph)}`,
       `TRUCK_PENALTY = {"1": ${n(k.truck_limited)}, "2": ${n(k.truck_local)}, "3": ${n(k.truck_through)}}`,
+      `ROOM_EXPONENT = ${n(k.room_exponent)}`,
+      `ROOM_MAX_DISCOUNT = ${n(k.room_max_discount)}`,
+      `PAVEMENT_PER_POINT = ${n(k.pave_per_point)}`,
       `WALK_FACTOR = ${n(k.walk_factor)}`,
       `STEP_FACTOR = ${n(k.step_factor)}`,
     ].join("\n");

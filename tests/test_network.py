@@ -10,6 +10,7 @@ from bike_network.network import (
     build_edges,
     direction_volumes,
     mark_shared_streets,
+    room_ft,
     traffic_penalty,
 )
 
@@ -123,6 +124,8 @@ def test_traffic_penalty_terms():
             "traf_dir": ["T", "W", "T", "P", "T"],
             "speed_mph": [np.nan, 35.0, 25.0, 25.0, 25.0],
             "truck_route": ["", "", "3", "", ""],
+            "width_ft": np.nan,  # unknown width: the room term stays neutral
+            "park_lanes": np.nan,
         }
     )
     volume = pd.Series([4.0 * REF, REF, REF, 8.0 * REF, REF / 4])
@@ -132,6 +135,116 @@ def test_traffic_penalty_terms():
     assert got[2] == pytest.approx(config.TRAFFIC_BASE + config.TRUCK_PENALTY["3"])
     assert got[3] == 0.0  # no cars on a path, whatever the volume says
     assert got[4] == pytest.approx(config.TRAFFIC_BASE)  # quieter than quiet is no bonus
+
+
+def test_room_per_direction():
+    seg = pd.DataFrame(
+        {
+            "traf_dir": ["W", "T", "T", "A", "T"],
+            "width_ft": [40.0, 42.0, 30.0, np.nan, 0.0],
+            "park_lanes": [2.0, 2.0, np.nan, 2.0, 2.0],
+        }
+    )
+    got = room_ft(seg).tolist()
+    assert got[0] == 24.0  # Montrose Ave: one way, all of it
+    assert got[1] == 13.0  # Bushwick Ave: two way, half of it
+    assert got[2] == (30.0 - 8.0 * config.PARK_LANES_UNKNOWN) / 2  # blank parking count
+    assert np.isnan(got[3])  # no width, no room term
+    assert np.isnan(got[4])
+
+
+def test_more_room_lightens_the_traffic_penalty():
+    # Montrose Ave (one way, two lanes, 40 ft) against Bushwick Ave (two way,
+    # one lane each way, 42 ft), at the same traffic.
+    vol = {(1, "fwd"): 4 * REF, (2, "fwd"): 4 * REF, (2, "rev"): 4 * REF}
+    e = build(
+        [
+            lion_row(1, 1, 2, "W", StreetWidth_Min=40.0),
+            lion_row(2, 3, 4, "T", StreetWidth_Min=42.0),
+            lion_row(3, 5, 6, "T"),  # width unknown
+        ],
+        volumes={**vol, (3, "fwd"): 4 * REF, (3, "rev"): 4 * REF},
+    )
+    plain = config.TRAFFIC_BASE + 2 * config.TRAFFIC_PER_DOUBLING
+
+    def scale(room):
+        return (config.ROOM_REFERENCE_FT / room) ** config.ROOM_EXPONENT
+
+    montrose = edge(e, 1, "fwd")["traffic_penalty"]
+    bushwick = edge(e, 2, "fwd")["traffic_penalty"]
+    assert montrose == pytest.approx(plain * scale(24.0))
+    assert bushwick == pytest.approx(plain * scale(13.0))
+    assert montrose < bushwick
+    assert edge(e, 3, "fwd")["traffic_penalty"] == pytest.approx(plain)  # unknown width: neutral
+
+
+def test_room_takes_only_so_much_off_a_busy_street():
+    # 64x the quiet volume on 24 ft of room: half the penalty would be a
+    # discount of over 3, but room takes off no more than the cap.
+    e = build(
+        [
+            lion_row(1, 1, 2, "W", StreetWidth_Min=40.0),
+            lion_row(2, 3, 4, "W", StreetWidth_Min=40.0),
+        ],
+        volumes={(1, "fwd"): 64 * REF, (2, "fwd"): 2 * REF},
+    )
+    busy = config.TRAFFIC_BASE + 6 * config.TRAFFIC_PER_DOUBLING
+    assert edge(e, 1, "fwd")["traffic_penalty"] == pytest.approx(busy - config.ROOM_MAX_DISCOUNT)
+    calm = config.TRAFFIC_BASE + config.TRAFFIC_PER_DOUBLING
+    assert edge(e, 2, "fwd")["traffic_penalty"] == pytest.approx(calm / 2)  # under the cap
+
+
+def test_a_painted_lane_is_its_own_room():
+    # The same wide and narrow streets, with and without paint: paint keeps
+    # its share of the plain penalty whatever the width; sharrows do not.
+    rows = [
+        lion_row(1, 1, 2, "W", StreetWidth_Min=40.0),  # 24 ft
+        lion_row(2, 3, 4, "W", StreetWidth_Min=25.0),  # 9 ft
+        lion_row(3, 5, 6, "W", StreetWidth_Min=40.0),
+    ]
+    vol = {(i, "fwd"): 4 * REF for i in (1, 2, 3)}
+    e = build(
+        rows,
+        [dot_row(1, ft="Conventional"), dot_row(2, ft="Conventional"), dot_row(3, ft="Shared")],
+        volumes=vol,
+    )
+    plain = config.TRAFFIC_BASE + 2 * config.TRAFFIC_PER_DOUBLING
+    painted = 1 + config.EXPOSURE["painted"] * plain
+    assert edge(e, 1, "fwd")["factor"] == pytest.approx(painted)
+    assert edge(e, 2, "fwd")["factor"] == pytest.approx(painted)
+    shared = config.EXPOSURE["shared"] * plain * config.ROOM_REFERENCE_FT / 24.0
+    assert edge(e, 3, "fwd")["factor"] == pytest.approx(1 + shared)
+
+
+def test_room_is_held_to_its_range():
+    e = build(
+        [
+            lion_row(1, 1, 2, "W", StreetWidth_Min=80.0),  # four lanes and parking
+            lion_row(2, 3, 4, "T", StreetWidth_Min=18.0),  # 1 ft a direction after parking
+        ]
+    )
+    base = config.TRAFFIC_BASE
+    wide = (config.ROOM_REFERENCE_FT / config.ROOM_MAX_FT) ** config.ROOM_EXPONENT
+    narrow = (config.ROOM_REFERENCE_FT / config.ROOM_MIN_FT) ** config.ROOM_EXPONENT
+    assert edge(e, 1, "fwd")["traffic_penalty"] == pytest.approx(base * wide)
+    assert edge(e, 2, "fwd")["traffic_penalty"] == pytest.approx(base * narrow)
+
+
+def test_rough_pavement_adds_to_riding_not_walking():
+    seg = lion.prepare(
+        pd.DataFrame([lion_row(1, 1, 2, "W"), lion_row(2, 2, 3, "T"), lion_row(3, 3, 4, "W")])
+    )
+    seg["pavement"] = [3.0, 9.5, np.nan]
+    fac = lanes.facilities(
+        pd.DataFrame(columns=["segmentid", "status", "ft_facilit", "tf_facilit"])
+    )
+    e = build_edges(seg, fac)
+    quiet = 1 + config.TRAFFIC_BASE
+    rough = config.PAVEMENT_PER_POINT * (config.PAVEMENT_GOOD - 3.0)
+    assert edge(e, 1, "fwd")["factor"] == pytest.approx(quiet + rough)
+    assert edge(e, 1, "rev")["factor"] == config.WALK_FACTOR  # walked, on the sidewalk
+    assert edge(e, 2, "fwd")["factor"] == pytest.approx(quiet)  # good pavement adds nothing
+    assert edge(e, 3, "fwd")["factor"] == pytest.approx(quiet)  # unrated adds nothing
 
 
 def test_contraflow_rider_shares_the_oncoming_volume():

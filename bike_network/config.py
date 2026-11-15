@@ -1,8 +1,10 @@
 """Paths, sources and every tunable number of the cost model.
 
 The cost model is ``cost = length_m * factor`` on every directed edge, with
-``factor = 1 + exposure(facility) * traffic_penalty(edge)`` for riding and a
-flat ``WALK_FACTOR`` for walking the bike. Every factor is positive, so
+``factor = 1 + exposure(facility) * felt_penalty(edge) + pavement_term(edge)``
+for riding, where the felt penalty is the traffic penalty adjusted for room
+where the rider shares the lane with cars, and a flat ``WALK_FACTOR`` for walking the
+bike. Every factor is positive, so
 Dijkstra applies and no loop can lower a route's cost.
 """
 
@@ -36,6 +38,13 @@ BIKE_ROUTES_URL = (
     "facilitycl,onoffst,bikedir,instdate,ret_date"
     f"&$limit={BIKE_ROUTES_LIMIT}&$order=:id"
 )
+
+# NYC DOT's street pavement ratings (Open Data 6yyb-pb25): 1-10 per block,
+# keyed by on/from/to street codes rather than LION's segment id, so they are
+# matched to LION by geometry. DOT moved to its Pavement Condition Index
+# inspections in 2018; older ratings are not on the same scale.
+PAVEMENT_URL = "https://data.cityofnewyork.us/resource/6yyb-pb25.geojson"
+PAVEMENT_SINCE = "2018-01-01"
 
 # Citi Bike demand: every station-to-station trip of one calendar year. 2025
 # is the latest year whose months all look complete (April and October 2026
@@ -106,6 +115,31 @@ TRAFFIC_PER_5_MPH = 0.15  # each 5 mph of posted speed above the default
 DEFAULT_SPEED_MPH = 25  # NYC's citywide default limit
 # TRUCK_ROUTE_TYPE: 1 limited local, 2 local, 3 through.
 TRUCK_PENALTY = {"1": 0.2, "2": 0.3, "3": 0.5}
+
+# Room to be passed. The same traffic is easier to share with more roadway in
+# the rider's direction: curb to curb, less parking, all of it on a one-way
+# street and half on a two-way one. Where a rider shares the lane with cars
+# (no facility, or sharrows), the traffic penalty is scaled by
+# (ROOM_REFERENCE / room) ** ROOM_EXPONENT, with room held to [ROOM_MIN,
+# ROOM_MAX], and room takes at most ROOM_MAX_DISCOUNT off it: a wide arterial
+# is roomier, but its traffic is still an arterial's. Past two lanes, more
+# width brings more lanes of traffic, not more room for the rider, and below
+# ROOM_MIN the width is likely a data error. A painted lane's stripe is the
+# rider's room, and the curb-to-curb width counts the lane itself, so paint
+# keeps its exposure whatever the width.
+ROOM_REFERENCE_FT = 12.0  # the median one-lane-per-direction street (one-way 14, two-way 9)
+ROOM_MIN_FT = 7.0
+ROOM_MAX_FT = 24.0  # two travel lanes
+ROOM_EXPONENT = 1.0  # see docs/methodology.md
+ROOM_MAX_DISCOUNT = 1.25  # judgment: a quarter of a busy arterial's penalty
+PARKING_LANE_FT = 8.0
+PARK_LANES_UNKNOWN = 2  # LION leaves a quarter of streets blank; 2 is by far the most common
+
+# Rough pavement. DOT rates 8-10 good, 4-7 fair and 1-3 poor. Each point below
+# good adds the same to the riding factor, whatever the traffic. Streets with
+# no rating (about one block in eight) take none.
+PAVEMENT_GOOD = 8.0
+PAVEMENT_PER_POINT = 0.05  # judgment: a poor street (3) costs 1.25x a good one
 
 # Walking the bike is legal on any sidewalk in either direction, so every
 # segment a pedestrian may use stays traversable. Walking is about four times

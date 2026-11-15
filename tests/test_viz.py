@@ -16,17 +16,28 @@ NODE = shutil.which("node")
 
 # Every case the cost model distinguishes, so cost.js is held to each.
 LION = [
-    lion_row(1, 1, 2, "T"),
-    lion_row(2, 2, 3, "W", Number_Travel_Lanes=" 1"),
-    lion_row(3, 3, 4, "A", Number_Travel_Lanes=" 3", POSTED_SPEED="35"),
+    lion_row(1, 1, 2, "T", StreetWidth_Min=42.0),
+    lion_row(2, 2, 3, "W", Number_Travel_Lanes=" 1", StreetWidth_Min=40.0),  # room above the cap
+    # busy and roomy: the room discount hits its cap
+    lion_row(3, 3, 4, "A", Number_Travel_Lanes=" 3", POSTED_SPEED="35", StreetWidth_Min=33.5),
     lion_row(4, 4, 5, "W", Number_Travel_Lanes=" 1"),  # contraflow lane below
-    lion_row(5, 5, 6, "T", Number_Travel_Lanes=" 6", TRUCK_ROUTE_TYPE="3"),
+    # narrow, with paint one way (no room term) and sharrows the other
+    lion_row(5, 5, 6, "T", Number_Travel_Lanes=" 6", TRUCK_ROUTE_TYPE="3", StreetWidth_Min=20.0),
     lion_row(6, 6, 7, "P"),
     lion_row(7, 7, 8, "P"),  # designated path below
     lion_row(8, 8, 9, "P", RW_TYPE=" 7"),  # step street
     lion_row(9, 9, 10, "T", NonPed="V", RW_TYPE=" 2"),  # highway
     lion_row(10, 10, 11, "T", NonPed="V"),  # vehicle-only with a lane below
-    lion_row(11, 11, 12, "T", Number_Travel_Lanes="  ", TRUCK_ROUTE_TYPE="1"),
+    lion_row(
+        11,
+        11,
+        12,
+        "T",
+        Number_Travel_Lanes="  ",
+        TRUCK_ROUTE_TYPE="1",
+        Number_Park_Lanes="  ",
+        StreetWidth_Min=31.0,
+    ),
     lion_row(12, 12, 13, "T", Number_Travel_Lanes=" 4", TRUCK_ROUTE_TYPE="2"),
 ]
 DOT = [
@@ -59,7 +70,13 @@ def segments():
         [(f"{s:07d}", d, v) for (s, d), v in VOLUMES.items()],
         columns=["segment_id", "dir", "volume_est"],
     )
-    return direction_volumes(seg, est), fac
+    seg = direction_volumes(seg, est)
+    seg["pavement"] = PAVEMENT
+    return seg, fac
+
+
+# DOT's rating per segment above: poor, fair, good and unrated, on lanes and paths too.
+PAVEMENT = [3.2, 6.75, 9.1, 4.0, np.nan, np.nan, 2.0, np.nan, np.nan, 5.5, 8.0, 7.25]
 
 
 def run_cost_js(attrs, knobs):
@@ -69,7 +86,8 @@ const input = JSON.parse(require("fs").readFileSync(0, "utf8"));
 const out = [];
 for (let i = 0; i < input.p.length; i++)
   for (const dir of [0, 1]) {
-    const r = api.edge(input.p[i], input.speed[i], input.vf[i], input.vr[i], dir, input.knobs);
+    const r = api.edge(input.p[i], input.speed[i], input.vf[i], input.vr[i], dir, input.knobs,
+                       input.room[i], input.pave[i]);
     out.push(r === null ? null : [r.ride, r.factor]);
   }
 console.log(JSON.stringify(out));
@@ -79,6 +97,8 @@ console.log(JSON.stringify(out));
         "speed": attrs["speed"].tolist(),
         "vf": attrs["vf"].tolist(),
         "vr": attrs["vr"].tolist(),
+        "room": attrs["room"].tolist(),
+        "pave": attrs["pave"].tolist(),
         "knobs": knobs,
     }
     res = subprocess.run(  # noqa: S603 -- node on a file in this repo
@@ -92,9 +112,25 @@ console.log(JSON.stringify(out));
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
-@pytest.mark.parametrize("walk_factor", [config.WALK_FACTOR, 1.3])
-def test_cost_js_matches_python(monkeypatch, walk_factor):
+@pytest.mark.parametrize(
+    ("walk_factor", "room_exponent", "room_max_discount", "pave_per_point"),
+    [
+        (
+            config.WALK_FACTOR,
+            config.ROOM_EXPONENT,
+            config.ROOM_MAX_DISCOUNT,
+            config.PAVEMENT_PER_POINT,
+        ),
+        (1.3, 0.6, 0.5, 0.2),
+    ],
+)
+def test_cost_js_matches_python(
+    monkeypatch, walk_factor, room_exponent, room_max_discount, pave_per_point
+):
     monkeypatch.setattr(config, "WALK_FACTOR", walk_factor)
+    monkeypatch.setattr(config, "ROOM_EXPONENT", room_exponent)
+    monkeypatch.setattr(config, "ROOM_MAX_DISCOUNT", room_max_discount)
+    monkeypatch.setattr(config, "PAVEMENT_PER_POINT", pave_per_point)
     seg, fac = segments()
     edges = build_edges(seg, fac).set_index(["segment_id", "dir"])
     js = run_cost_js(viz.pack_attributes(seg, fac), viz.knobs())

@@ -24,6 +24,9 @@ from . import config
 MIN_COST = 0.01
 
 CAR_DIRS = frozenset({"T", "W", "A"})
+# Facilities that leave the rider in the cars' lane, where room to be passed
+# changes what the traffic costs.
+SHARES_LANE = ("none", "shared")
 
 
 def against_traffic(edges: pd.DataFrame, seg: pd.DataFrame) -> np.ndarray:
@@ -65,6 +68,13 @@ class CostParams:
     exposure: dict[str, float]
     walk_factor: float
     step_factor: float
+    room_ref: float
+    room_min: float
+    room_max: float
+    room_exponent: float
+    room_max_discount: float
+    pave_good: float
+    pave_per_point: float
 
     @classmethod
     def from_config(cls, **overrides: object) -> CostParams:
@@ -78,6 +88,13 @@ class CostParams:
             "exposure": dict(config.EXPOSURE),
             "walk_factor": config.WALK_FACTOR,
             "step_factor": config.STEP_FACTOR,
+            "room_ref": config.ROOM_REFERENCE_FT,
+            "room_min": config.ROOM_MIN_FT,
+            "room_max": config.ROOM_MAX_FT,
+            "room_exponent": config.ROOM_EXPONENT,
+            "room_max_discount": config.ROOM_MAX_DISCOUNT,
+            "pave_good": config.PAVEMENT_GOOD,
+            "pave_per_point": config.PAVEMENT_PER_POINT,
         }
         values.update(overrides)
         return cls(**values)  # type: ignore[arg-type]
@@ -149,10 +166,57 @@ def mark_shared_streets(seg: pd.DataFrame, fac: pd.DataFrame) -> pd.DataFrame:
     return seg
 
 
+def room_ft(seg: pd.DataFrame) -> pd.Series:
+    """Feet of moving roadway in each direction a rider travels, NaN where unknown.
+
+    Curb-to-curb width less ``PARKING_LANE_FT`` per parking lane: all of it on
+    a one-way street (or one roadbed of a divided one), half on a two-way
+    street. LION's blank parking count is read as ``PARK_LANES_UNKNOWN``.
+    """
+    width = seg["width_ft"].where(seg["width_ft"] > 0)
+    parking = seg["park_lanes"].fillna(config.PARK_LANES_UNKNOWN)
+    share = np.where(seg["traf_dir"] == "T", 0.5, 1.0)
+    return ((width - config.PARKING_LANE_FT * parking) * share).rename("room_ft")
+
+
+def room_scale(room: pd.Series, params: CostParams | None = None) -> pd.Series:
+    """How much of the traffic penalty a rider feels for the room they have.
+
+    1 at ``room_ref`` (and where the width is unknown), below 1 with more
+    room, above with less.
+    """
+    k = params or CostParams.from_config()
+    held = room.fillna(k.room_ref).clip(k.room_min, k.room_max)
+    return (k.room_ref / held) ** k.room_exponent
+
+
+def room_adjusted(
+    penalty: pd.Series, room: pd.Series, params: CostParams | None = None
+) -> pd.Series:
+    """Return the traffic penalty a rider sharing the lane feels, for the room they have.
+
+    Scaled by :func:`room_scale`, but room never takes more than
+    ``room_max_discount`` off: a narrow street's penalty grows in full, a wide
+    one's shrinks only so far.
+    """
+    k = params or CostParams.from_config()
+    return np.maximum(penalty * room_scale(room, k), penalty - k.room_max_discount)
+
+
+def pavement_term(rating: pd.Series, params: CostParams | None = None) -> pd.Series:
+    """Return the riding factor added for pavement below good; 0 where unrated."""
+    k = params or CostParams.from_config()
+    return (k.pave_per_point * (k.pave_good - rating).clip(lower=0)).fillna(0.0)
+
+
 def traffic_penalty(
     seg: pd.DataFrame, volume: pd.Series, params: CostParams | None = None
 ) -> pd.Series:
-    """Traffic penalty for one direction of each segment; 0 where no car is allowed."""
+    """Traffic penalty for one direction of each segment; 0 where no car is allowed.
+
+    Before room: :func:`build_edges` adjusts it with :func:`room_adjusted`
+    where the rider shares the lane.
+    """
     k = params or CostParams.from_config()
     doublings = np.log2(volume / k.volume_ref).clip(lower=0)
     speed = seg["speed_mph"].fillna(config.DEFAULT_SPEED_MPH)
@@ -183,6 +247,9 @@ def build_edges(
     no_ride = step | seg["vehicle_only"] | (seg["rw_type"] == config.RW_HIGHWAY)
     can_walk = ~seg["vehicle_only"] & (seg["rw_type"] != config.RW_HIGHWAY)
     walk_factor = np.where(step, k.step_factor, k.walk_factor)
+    rating = seg["pavement"] if "pavement" in seg else pd.Series(np.nan, index=seg.index)
+    rough = pavement_term(rating, k)
+    room = room_ft(seg)
 
     parts = []
     for direction, u, v, with_traffic in (
@@ -192,11 +259,12 @@ def build_edges(
         facility = seg[direction]
         volume = seg[f"vol_{direction}"]
         penalty = traffic_penalty(seg, volume, k)
+        penalty = room_adjusted(penalty, room, k).where(facility.isin(SHARES_LANE), penalty)
         has_lane = facility != "none"
         cars_allow = seg["traf_dir"].isin(with_traffic) & ~no_ride
         can_ride = cars_allow | has_lane
         exposure = facility.map(k.exposure)
-        ride_factor = 1.0 + exposure * penalty
+        ride_factor = 1.0 + exposure * penalty + rough
         ride = can_ride & (~can_walk | (ride_factor <= walk_factor))
         part = pd.DataFrame(
             {
@@ -209,6 +277,7 @@ def build_edges(
                 "facility": facility,
                 "volume": volume.where(seg["traf_dir"].isin(CAR_DIRS)),
                 "traffic_penalty": penalty,
+                "pavement": rating,
                 "mode": np.where(ride, "ride", "walk"),
                 "factor": np.where(ride, ride_factor, walk_factor),
             }

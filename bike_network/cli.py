@@ -22,6 +22,7 @@ from . import (
     lanes,
     lion,
     pages,
+    pavement,
     sources,
     traffic,
     viz,
@@ -73,6 +74,11 @@ def build() -> None:
     )
     seg = mark_shared_streets(direction_volumes(seg, est), fac)
     print(f"  {int(seg['shared_street'].sum())} segments priced as DOT shared streets")
+    print("Pavement")
+    seg["pavement"] = pavement.ratings_for(seg)
+    car = seg["traf_dir"].isin(["T", "W", "A"]) & ~seg["vehicle_only"]
+    rated = seg.loc[car, "length_m"].where(seg.loc[car, "pavement"].notna()).sum()
+    print(f"  {rated / seg.loc[car, 'length_m'].sum():.1%} of car-street length has a rating")
     edges = build_edges(seg, fac)
     graph = Graph.from_edges(edges)
     _summary(seg, fac, edges, graph)
@@ -228,6 +234,16 @@ GRID = {
     "per_doubling": [0.0, 0.15, 0.3, 0.5, 0.75, 1.0],
     "painted": [0.0, 0.15, 0.3, 0.5, 0.75, 1.0],
     "walk_factor": [2.5, 4.0, 6.0],
+    "room_exponent": [config.ROOM_EXPONENT],
+    "room_max_discount": [config.ROOM_MAX_DISCOUNT],
+    "pave_per_point": [config.PAVEMENT_PER_POINT],
+}
+# Settings scored before a knob existed were scored without its term.
+# Without a room term the cap does nothing, so those rows take the default.
+KNOB_ABSENT = {
+    "room_exponent": 0.0,
+    "room_max_discount": config.ROOM_MAX_DISCOUNT,
+    "pave_per_point": 0.0,
 }
 
 
@@ -261,7 +277,7 @@ def run_calibration(grid: dict[str, list[float]] | None = None) -> None:
 
     rows = []
     combos = list(itertools.product(*grid.values()))
-    for i, (per_doubling, painted, walk) in enumerate(combos, 1):
+    for i, (per_doubling, painted, walk, room, cap, pave) in enumerate(combos, 1):
         start = time.time()
         params = CostParams.from_config(
             per_doubling=per_doubling,
@@ -269,6 +285,9 @@ def run_calibration(grid: dict[str, list[float]] | None = None) -> None:
             walk_factor=walk,
             # Carrying a bike up steps never costs less than walking it.
             step_factor=max(config.STEP_FACTOR, walk),
+            room_exponent=room,
+            room_max_discount=cap,
+            pave_per_point=pave,
         )
         e = build_edges(seg, fac, params)
         res = assignment.assign(Graph.from_edges(e), od, workers=WORKERS)
@@ -280,6 +299,9 @@ def run_calibration(grid: dict[str, list[float]] | None = None) -> None:
                 "per_doubling": per_doubling,
                 "painted": painted,
                 "walk_factor": walk,
+                "room_exponent": room,
+                "room_max_discount": cap,
+                "pave_per_point": pave,
                 **s,
                 "trip_km": trip_km,
                 **{f"routed_{cid}": v for cid, v in zip(counters["id"], routed, strict=True)},
@@ -287,14 +309,18 @@ def run_calibration(grid: dict[str, list[float]] | None = None) -> None:
         )
         print(
             f"  [{i:3d}/{len(combos)}] doubling {per_doubling:4.2f} painted {painted:4.2f} "
-            f"walk {walk:3.1f}: spread {s['spread']:.3f} ({time.time() - start:.0f}s)",
+            f"walk {walk:3.1f} room {room:3.1f} cap {cap:4.2f} pave {pave:4.2f}: spread {s['spread']:.3f} "
+            f"({time.time() - start:.0f}s)",
             flush=True,
         )
-    knobs = ["per_doubling", "painted", "walk_factor"]
+    knobs = list(GRID)
     results = pd.DataFrame(rows)
     path = config.BUILD_DIR / "calibration.parquet"
     if path.exists():
-        results = pd.concat([pd.read_parquet(path), results]).drop_duplicates(knobs, keep="last")
+        earlier = pd.read_parquet(path)
+        for knob, value in KNOB_ABSENT.items():
+            earlier[knob] = earlier[knob].fillna(value) if knob in earlier else value
+        results = pd.concat([earlier, results]).drop_duplicates(knobs, keep="last")
     results = results.sort_values("spread").reset_index(drop=True)
     results["baseline_spread"] = baseline["spread"]
     results.to_parquet(path)
@@ -304,7 +330,9 @@ def run_calibration(grid: dict[str, list[float]] | None = None) -> None:
     print("Best settings:")
     for r in results.head(10).itertuples():
         print(
-            f"  doubling {r.per_doubling:4.2f} painted {r.painted:4.2f} walk {r.walk_factor:3.1f}: "
+            f"  doubling {r.per_doubling:4.2f} painted {r.painted:4.2f} walk {r.walk_factor:3.1f} "
+            f"room {r.room_exponent:3.1f} cap {r.room_max_discount:4.2f} "
+            f"pave {r.pave_per_point:4.2f}: "
             f"spread {r.spread:.3f}  raw {r.raw:.3f}  rank r {r.spearman:.2f}"
         )
     print(f"Wrote {config.BUILD_DIR / 'calibration.parquet'}")
