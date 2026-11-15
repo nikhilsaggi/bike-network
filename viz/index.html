@@ -1,4 +1,4 @@
-<title>NYC Bike Cost Map</title>
+<title>NYC Bike Lane Priorities</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -168,6 +168,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .seg.small button { font-size: 12px; padding: 5px 6px; }
 .note { font-size: 12px; color: var(--ink-3); line-height: 1.45; margin: 8px 0 0; }
 .note b { color: var(--ink-2); font-weight: 600; }
+.note.mode-note { color: var(--ink-2); }
 #about-h + .note { margin-top: 0; }
 .note.steps { padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 .note.formula { color: var(--ink); font-size: 12px; padding: 6px 8px; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; }
@@ -259,18 +260,21 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
 
 <aside id="rail">
   <header>
-    <h1>NYC Bike Cost Map</h1>
-    <p class="lede">Every street is drawn once per direction, on the rider's right-hand side.
-      Color is how much a mile of riding costs, against a quiet two-way street.</p>
+    <h1>NYC Bike Lane Priorities</h1>
+    <p class="lede">Using NYC street and traffic data to identify the most optimal bike lane improvements</p>
     <p class="src" id="src">LION street map · NYC DOT bike routes</p>
     <p class="src"><a href="https://github.com/nikhilsaggi/bike-network/blob/main/docs/methodology.md" target="_blank" rel="noopener">How it is built</a>
       · <a href="https://github.com/nikhilsaggi/bike-network" target="_blank" rel="noopener">Source</a></p>
   </header>
 
-  <div class="seg" role="group" aria-label="What the map shows">
-    <button type="button" id="modeCost" aria-pressed="true">Cost</button>
-    <button type="button" id="modeTrips" aria-pressed="false">Citi Bike trips</button>
-    <button type="button" id="modePlan" aria-pressed="false">New corridors</button>
+  <div>
+    <div class="seg" role="group" aria-label="What the map shows">
+      <button type="button" id="modeCost" aria-pressed="true">Cost</button>
+      <button type="button" id="modeTrips" aria-pressed="false">Citi Bike trips</button>
+      <button type="button" id="modePlan" aria-pressed="false">New corridors</button>
+    </div>
+    <p class="note mode-note" id="modeNote">Every street is drawn once per direction, on the rider's right-hand side.
+      Color is how much a mile of riding costs, against a quiet two-way street.</p>
   </div>
 
   <section class="trips-only" aria-labelledby="flow-h" hidden>
@@ -1465,7 +1469,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     document.getElementById("planViews").hidden = !on || !hasEffect();
     document.querySelectorAll("[data-pview]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.pview === planView)));
     document.querySelectorAll("[data-pv]").forEach((el) => { el.hidden = !on || !el.dataset.pv.split(" ").includes(planView); });
-    if (on) document.querySelector(".lede").textContent = PLAN_LEDE[planView === "riders" && compare === "split" ? "split" : planView];
+    if (on) document.getElementById("modeNote").textContent = PLAN_LEDE[planView === "riders" && compare === "split" ? "split" : planView];
   }
   // Escape and the cards' × close an example trip or a station too.
   function closeEffect() {
@@ -1871,7 +1875,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
       trips: "Every street is drawn once per direction, on the rider's right-hand side. Color and width are Citi Bike trips a day routed along it.",
       plan: "Where new protected lanes would save Citi Bike riders the most cost, scored as whole corridors rather than block by block.",
     };
-    document.querySelector(".lede").textContent = lede[mode];
+    document.getElementById("modeNote").textContent = lede[mode];
     selectedExample = null; route = NO_ROUTE; selectedStation = null; syncPlanView(); renderExamples();
     if (selectedFac !== null) selectFacility(selectedFac);
     if (selectedStreet !== null) selectStreet(selectedStreet);
