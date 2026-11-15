@@ -260,19 +260,23 @@ def _bbox(geom: gpd.GeoSeries, ids: np.ndarray) -> list[float]:
 
 
 def street_shifts(
-    seg: gpd.GeoDataFrame, today: pd.DataFrame, plan: pd.DataFrame
+    seg: gpd.GeoDataFrame, today: pd.DataFrame, plan: pd.DataFrame, rank: pd.Series | None = None
 ) -> dict[str, list[dict[str, Any]]]:
     """Find the streets the plan draws the most riding onto, and those it takes the most off.
 
     ``today`` is ``flows.parquet`` and ``plan`` the ``effect`` command's
     ``plan_flows.parquet``, row for row. Each street (a name in a borough)
     nets its blocks' change in trip-km a day; its ``bbox`` frames the blocks
-    that changed by at least ``SHIFT_MIN_DAY`` trips a day that way.
+    that changed by at least ``SHIFT_MIN_DAY`` trips a day that way. Given
+    ``rank`` (segment id to the payload's segment order), each street also
+    lists those blocks' edges as ``2 * segment + direction``, for the viewer
+    to light.
     """
     delta = (plan["trips"].to_numpy() - today["trips"].to_numpy()) / 365
     rows = pd.DataFrame(
         {
             "segment_id": today["segment_id"].to_numpy(),
+            "dir": today["dir"].to_numpy(),
             "street": today["street"].to_numpy(),
             "boro": today["boro"].to_numpy(),
             "delta": delta,
@@ -291,14 +295,17 @@ def street_shifts(
                 & (rows["boro"] == boro)
                 & (sign * rows["delta"] >= SHIFT_MIN_DAY)
             ]
-            items.append(
-                {
-                    "street": street,
-                    "boro": BORO.get(int(boro), ""),
-                    "km_day": round(float(km)),
-                    "bbox": _bbox(geom, moved["segment_id"].to_numpy()),
-                }
-            )
+            item = {
+                "street": street,
+                "boro": BORO.get(int(boro), ""),
+                "km_day": round(float(km)),
+                "bbox": _bbox(geom, moved["segment_id"].to_numpy()),
+            }
+            if rank is not None:
+                at = rank.reindex(moved["segment_id"]).to_numpy()
+                code = 2 * at + (moved["dir"] == "rev").to_numpy()
+                item["edges"] = sorted({int(c) for c in code[~np.isnan(at)]})
+            items.append(item)
         out[side] = items
     return out
 
@@ -350,7 +357,7 @@ def effect_layer(
     st = st[st["trips"] >= 365]  # a trip a day, at either end
     return {
         **effect["summary"],
-        "shifts": street_shifts(seg, flows, effect["flows"]),
+        "shifts": street_shifts(seg, flows, effect["flows"], rank),
         "examples": trips,
         "stations": {
             "lng": st["lng"].round(5).tolist(),

@@ -204,8 +204,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .ranked button:hover .tname { text-decoration: underline; }
 .ranked button[aria-pressed="true"] .tname { font-weight: 600; }
 .ranked button[aria-pressed="true"] .rank { color: var(--ink); }
-/* the picked busiest facility: the map's lit yellow, so row and blocks read as one;
-   the street riders move to or leave that was last gone to, likewise */
+/* the picked busiest facility, or street riders move to or leave: the map's
+   lit yellow, so row and blocks read as one */
 #top button, #joinList button, #leaveList button { padding-left: 6px; padding-right: 6px; border-left: 3px solid transparent; }
 #top button[aria-pressed="true"], #joinList button[aria-pressed="true"], #leaveList button[aria-pressed="true"] { background: var(--surface); border-left-color: #ffc400; }
 .ranked .rank { color: var(--ink-3); font-family: var(--font-num); font-size: 12px; }
@@ -492,6 +492,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
   let route = NO_ROUTE, stationObjs = [], exampleOf = new Map();
   // The busiest facility picked from the Citi Bike trips list, and its lit edges.
   let selectedFac = null, facEdges = [];
+  let selectedStreet = null, streetEdges = [];  // "join:i" or "leave:i", in the riders view's street lists
   const EX_SHOWN = 8, ST_SHOWN = 8;
   // "change" maps trips a day with the plan minus today; "split" puts today's
   // map and the plan's side by side, the second in its own deck.gl pane.
@@ -888,6 +889,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
       }),
       ...routeLayers("today", offsetExt),
       ...facilityLayers(),
+      ...streetLayers(),
       ...stationLayers(),
       ...selectionLayers(),
     ];
@@ -1403,15 +1405,33 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     return !r || !r.ride ? "walked" : BikeCost.FACILITY[r.facility];
   }
   // The busiest facility picked from the list, lit as a selected block is.
-  function facilityLayers() {
-    if (mode !== "trips" || selectedFac === null) return [];
-    const line = (id, width, color) => new deck.PathLayer({
-      id, data: facEdges, getPath: (e) => e.path, positionFormat: "XY", getColor: color, getWidth: width,
+  function litLayers(id, data) {
+    const line = (part, width, color) => new deck.PathLayer({
+      id: `${id}-${part}`, data, getPath: (e) => e.path, positionFormat: "XY", getColor: color, getWidth: width,
       widthUnits: "pixels", getOffset: offset * 1.4 / width, extensions: [offsetExt],
       capRounded: true, jointRounded: true, pickable: false,
       updateTriggers: { getOffset: offset },
     });
-    return [line("fac-casing", 8, CASING), line("fac-lit", 4, LIT)];
+    return [line("casing", 8, CASING), line("lit", 4, LIT)];
+  }
+  function facilityLayers() {
+    return mode === "trips" && selectedFac !== null ? litLayers("fac", facEdges) : [];
+  }
+  // A street riders move to or leave, picked from its list: its blocks that
+  // changed most, while the riders view shows the change (not a trip's routes).
+  function streetLayers() {
+    return mode === "plan" && planView === "riders" && selectedExample === null && selectedStreet !== null
+      ? litLayers("street", streetEdges) : [];
+  }
+  function selectStreet(key) {
+    selectedStreet = key === selectedStreet ? null : key;
+    const [side, i] = (selectedStreet || ":").split(":");
+    const r = selectedStreet === null ? null : data.plan.effect.shifts[side][+i];
+    streetEdges = r ? (r.edges || []).map((code) => edgeOf[code]).filter((j) => j >= 0).map((j) => edges[j]) : [];
+    document.querySelectorAll("#joinList button, #leaveList button")
+      .forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.street === selectedStreet)));
+    render();
+    if (r) flyTo(r.bbox);
   }
   function selectFacility(i) {
     const top = data.flow.top;
@@ -1437,6 +1457,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
   function setPlanView(v) {
     compare = "change"; syncCompare(); closeSplit();
     planView = v; selectedExample = null; route = NO_ROUTE; selectedStation = null;
+    if (selectedStreet !== null) selectStreet(selectedStreet);
     deselect(); syncPlanView(); renderExamples(); recompute();
   }
   function syncPlanView() {
@@ -1740,24 +1761,19 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     document.getElementById("exMore").onclick = () => { exAll = !exAll; renderExamples(); };
 
     // One street picked across both lists; picking it again lets it go.
-    const pickStreet = (btn, bbox) => {
-      const on = btn.getAttribute("aria-pressed") !== "true";
-      document.querySelectorAll("#joinList button, #leaveList button").forEach((b) => b.setAttribute("aria-pressed", "false"));
-      btn.setAttribute("aria-pressed", String(on));
-      if (on) flyTo(bbox);
-    };
-    const streets = (id, items) => {
-      const list = document.getElementById(id);
-      items.forEach((r, i) => {
+    const streets = (side) => {
+      const list = document.getElementById(`${side}List`);
+      eff.shifts[side].forEach((r, i) => {
+        const key = `${side}:${i}`;
         const li = rankedItem(i + 1, titleCase(r.street), r.boro,
-          `${r.km_day > 0 ? "+" : "−"}${Math.round(mi(Math.abs(r.km_day) * 1000)).toLocaleString()}`, "mi/day", () => pickStreet(btn, r.bbox));
+          `${r.km_day > 0 ? "+" : "−"}${Math.round(mi(Math.abs(r.km_day) * 1000)).toLocaleString()}`, "mi/day", () => selectStreet(key));
         const btn = li.querySelector("button");
-        btn.setAttribute("aria-pressed", "false");
+        btn.dataset.street = key; btn.setAttribute("aria-pressed", "false");
         list.appendChild(li);
       });
     };
-    streets("joinList", eff.shifts.join);
-    streets("leaveList", eff.shifts.leave);
+    streets("join");
+    streets("leave");
 
     stationObjs = st.name.map((_, i) => ({ i, p: [st.lng[i], st.lat[i]], r: 1.5 + Math.sqrt(st.trips_day[i]) / 4, c: [0, 0, 0] }))
       .sort((a, b) => st.trips_day[b.i] - st.trips_day[a.i]);  // the busiest first, so small dots sit on top
@@ -1858,6 +1874,7 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     document.querySelector(".lede").textContent = lede[mode];
     selectedExample = null; route = NO_ROUTE; selectedStation = null; syncPlanView(); renderExamples();
     if (selectedFac !== null) selectFacility(selectedFac);
+    if (selectedStreet !== null) selectStreet(selectedStreet);
     compare = "change"; syncCompare(); closeSplit();
     document.getElementById("card").hidden = true; selected = null; selectedCorridor = null;
     recompute();

@@ -345,6 +345,8 @@ def test_effect_trips_and_example_routes_land_on_their_own_direction():
     assert e["shifts"]["join"][0]["street"] == "STREET 2"
     assert e["shifts"]["join"][0]["km_day"] == 40
     assert e["shifts"]["leave"][0]["street"] == "STREET 1"
+    assert e["shifts"]["join"][0]["edges"] == [2 * s2]  # the blocks riders move onto, lit
+    assert e["shifts"]["leave"][0]["edges"] == [2 * s1]
     # a station with under a trip a day is left out
     assert e["stations"]["n"] == [1, 2]
     assert e["stations"]["name"][1] == "St 2 & St 3"
