@@ -187,7 +187,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .mix .stack { display: flex; height: 22px; border-radius: 3px; overflow: hidden; background: var(--rule); }
 .mix .stack i { display: flex; align-items: center; justify-content: center; font: 600 10px var(--font-num); font-style: normal; white-space: nowrap; overflow: hidden; }
 .mix .stack i + i { box-shadow: inset 1px 0 var(--plane); }
-.share .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; vertical-align: -1px; }
+.mix > .mix-key { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11px; color: var(--ink-2); margin-top: 2px; }
+.share .sw, .mix-key .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; vertical-align: -1px; }
 .f-separated { background: #0c9252; color: #fff; }
 .f-painted { background: #01b8ee; color: #10222b; }
 .f-shared { background: #b35fa6; color: #fff; }
@@ -1704,24 +1705,16 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
     const short = eff.share_shortest;
     const bars = (sh) => shareBars([["Today", sh.today], ["With the plan", sh.plan]]);
     document.getElementById("gainMix").innerHTML = short
-      ? `<div class="mix-h">Safest routes</div>${bars(eff.share)}<div class="mix-h">Shortest routes</div>${bars(short)}`
-      : bars(eff.share);
-    const pair = (label, a, b) => `<tr class="sep"><td>${label}</td><td class="v">${a}</td><td class="v">${b}</td></tr>`;
-    const mixRows = (sh) => SHARE_ROWS.map(([key, label]) => {
-      const a = sh.today[key] || 0, b = sh.plan[key] || 0;
-      return `<tr><td>${swatch(key)}${label}</td><td class="v">${pctText(a, 1)}</td><td class="v">${pctText(b, 1)}</td></tr>`;
-    }).join("");
-    const group = (label, sep) => `<tr class="group${sep ? " sep" : ""}"><td colspan="3">${label}</td></tr>`;
+      ? `<div class="mix-h">Safest routes</div>${bars(eff.share)}<div class="mix-h">Shortest routes</div>${bars(short)}${shareKey()}`
+      : bars(eff.share) + shareKey();
+    const row = (label, a, b) => `<tr><td>${label}</td><td class="v">${a}</td><td class="v">${b}</td></tr>`;
     document.getElementById("gainTable").innerHTML =
-      `<thead><tr><th>Share of trip-miles</th><th>Today</th><th>With improvements</th></tr></thead><tbody>` +
-      (short ? group("Safest routes") : "") + mixRows(eff.share) +
-      pair("Longer than the shortest routes", "+" + pctText(eff.detour.today, 1), "+" + pctText(eff.detour.plan, 1)) +
-      `<tr><td>Cost per mile</td><td class="v">${eff.cost_per_km.today.toFixed(2)}×</td><td class="v">${eff.cost_per_km.plan.toFixed(2)}×</td></tr>` +
-      `<tr><td>Miles walked a year</td><td class="v">${Math.round(mi(eff.walked_km.today))}k</td><td class="v">${Math.round(mi(eff.walked_km.plan))}k</td></tr>` +
-      (short ? group("Shortest routes", true) + mixRows(short) : "") +
+      `<thead><tr><th>Safest routes</th><th>Today</th><th>With improvements</th></tr></thead><tbody>` +
+      row("Longer than the shortest routes", "+" + pctText(eff.detour.today, 1), "+" + pctText(eff.detour.plan, 1)) +
+      row("Cost per mile", eff.cost_per_km.today.toFixed(2) + "×", eff.cost_per_km.plan.toFixed(2) + "×") +
+      row("Miles walked a year", Math.round(mi(eff.walked_km.today)) + "k", Math.round(mi(eff.walked_km.plan)) + "k") +
       "</tbody>";
     document.getElementById("gainNote").textContent =
-      `The same ${(eff.trips / 1e6).toFixed(1)} million trips between the same stations, routed again with the improvements built: where they would ride, not new riders. ` +
       `${pctText(eff.same_route_share)} of the trips that gain keep today's route, because the lane goes on the street they already ride. ` +
       `The map of where riders go cannot show them; they get ${pctText(eff.same_route_saved)} of the cost saved.`;
     let moved = 0, small = 0;
@@ -1777,14 +1770,16 @@ table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
   ];
   const swatch = (key) => `<i class="sw f-${key}"></i>`;
   // One 100% bar per [label, shares] pair, a segment per facility; segments
-  // too narrow for their percentage go unlabeled (the table below has it).
+  // too narrow for their percentage go unlabeled (hovering one gives it).
   function shareBars(pairs) {
     return pairs.map(([label, sh]) => `<span>${label}</span><div class="stack">` +
       SHARE_ROWS.map(([key, name]) => {
         const v = sh[key] || 0;
-        return v > 0 ? `<i class="f-${key}" style="width:${(v * 100).toFixed(2)}%" title="${name}">${v >= 0.09 ? Math.round(v * 100) + "%" : ""}</i>` : "";
+        return v > 0 ? `<i class="f-${key}" style="width:${(v * 100).toFixed(2)}%" title="${name}: ${(v * 100).toFixed(1)}%">${v >= 0.09 ? Math.round(v * 100) + "%" : ""}</i>` : "";
       }).join("") + "</div>").join("");
   }
+  // The facility colors, for share bars with no table beside them to key them.
+  const shareKey = () => `<div class="mix-key">${SHARE_ROWS.map(([key, name]) => `<span>${swatch(key)}${name}</span>`).join("")}</div>`;
   function buildTrips(flow) {
     const pct = (v) => ((v || 0) * 100).toFixed(1) + "%";
     document.getElementById("shareMix").innerHTML = shareBars([["Safest", flow.share.safest], ["Shortest", flow.share.shortest]]);
