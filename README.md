@@ -4,7 +4,11 @@ Converting NYC into a graph where edges are the roads, weighted by how stressful
 it is to ride them. Then, using bike traffic data, we determine where riders
 are going and where new bike infrastructure would help the most.
 
-[Explore the network](https://nikhilsaggi.github.io/bike-network/)
+[![Explore the network](https://img.shields.io/badge/Explore_the_network-→-2b6cb0?style=for-the-badge)](https://nikhilsaggi.github.io/bike-network/)
+
+![The Cost view: NYC streets colored by riding cost](docs/images/cost.png)
+
+![The Citi Bike trips view: trips a day on each street](docs/images/trips.png)
 
 ## Data
 
