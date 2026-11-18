@@ -1,9 +1,12 @@
-# bike-network
+# NYC Bike Route Network
 
-A directed NYC street network where every edge costs more the less safe it is
-to ride: more for traffic, less for a bike lane in the direction of travel,
-least for a protected one. It is the base for routing experiments: which lanes
-carry the most riding, and where a new lane would help most.
+Converting NYC into a graph where edges are the roads, weighted by how stressful
+it is to ride them. Then, using bike traffic data, we determine where riders
+are going and where new bike infrastructure would help the most.
+
+[Explore the network](https://nikhilsaggi.github.io/bike-network/)
+
+## Data
 
 All inputs are public:
 
@@ -12,187 +15,88 @@ All inputs are public:
 | [LION](https://www.nyc.gov/content/planning/pages/resources/datasets/lion) (NYC DCP), release `26c` | streets, paths, traffic direction, travel lanes, posted speed, truck routes, street width and parking lanes |
 | [NYC Bike Routes](https://data.cityofnewyork.us/dataset/New-York-City-Bike-Routes/mzxg-pwib) (NYC DOT) | bike facility in each direction, joined on LION `SegmentID` |
 | [Street Pavement Ratings](https://data.cityofnewyork.us/d/6yyb-pb25) (NYC DOT) | each block's latest 1-10 pavement rating since 2018, matched to LION by geometry |
+| [Citi Bike System Data](https://citibikenyc.com/system-data) (Citi Bike) | start and end locations for each Citi Bike ride |
+| [Automated Traffic Volume Counts](https://data.cityofnewyork.us/Transportation/Automated-Traffic-Volume-Counts/7ym2-wayt) (NYC DOT) | measured car volumes on about 1% of streets, to train the traffic model |
+| [Bicycle Counts](https://data.cityofnewyork.us/Transportation/Bicycle-Counts/uczf-rk3c) (NYC DOT) | bikes past DOT's permanent counters, to calibrate the weights |
 
-## Run
+## How it works
+
+1. **Give every street a cost.** Each block, in each direction, costs its
+   length times how stressful it is to ride. A protected lane or greenway
+   costs just its length. A painted lane costs a little more. Riding in
+   traffic costs more the busier and faster the street is and if it is a
+   truck route, and less if there is room for cars to pass. Bad pavement
+   adds a little. Where riding is not allowed, such as the wrong way on a
+   one-way street, you can walk the bike on the sidewalk at 8 times the
+   length. A quiet side street works out to about 1.2x, a busy avenue
+   3-4x.
+2. **Estimate car traffic.** DOT has counted traffic on fewer than 1% of
+   streets, so a model trained on those counts estimates the rest from
+   what each street looks like: its width, lanes, one-way or not, truck
+   route.
+3. **Route the rides.** Each of 2025's 44.7 million Citi Bike trips takes
+   the lowest-cost route between its two stations. Adding up the routes
+   gives estimates of rider traffic on every block.
+4. **Tune cost parameters.** The weight on traffic and the cost of
+   walking were tuned so the routed riders line up with DOT's automatic
+   bike counters on the bridges and avenues.
+5. **Find where new lanes help most.** Try a protected lane on every
+   stretch of every street and measure how much it would lower the cost of
+   all the trips. Build the best per meter first, re-route, and score
+   again, since each new lane changes what the next one is worth. Stop at
+   50 mi of new lanes, which is NYC's yearly target for protected lanes.
+
+The details, and the evidence for every weight, are in
+[docs/methodology.md](docs/methodology.md).
+
+## Limitations
+
+* **Routing**: affects how accurately cycling traffic is portrayed.
+    * Cycling traffic data is approximated by Citi Bike ride data, which is not
+      representative of all cycling traffic. For example, the outer boroughs are
+      notably lacking in traffic since Citi Bike riding is more popular in Manhattan.
+    * The actual paths taken by riders are unknown. The Citi Bike dataset only gives
+      us the start and end points, and we assume the lowest-cost paths are taken.
+    * No accounting for turns or intersections in the route calculation.
+* **Traffic**: most traffic numbers are approximated. Less than 1% of streets have
+  reported counts, actual numbers may vary. This affects the cost calculations.
+  The counted streets skew busy and the median count is from 2016, so
+  estimates rank streets better than they measure any one of them. Volumes
+  are daily totals, so rush hour and 3am cost the same.
+* **Cost model**: only the traffic weight and the walking cost are tuned,
+  against just 11 informative bike counters. The other weights are
+  judgment calls.
+* **Network**: inaccuracies in network edges compared to NYC's actual roads.
+    * DOT's bike routes and LION have drifted apart in segment ids. Separated
+      paths DOT has never recorded take their directions from LION (586 blocks);
+      see [docs/methodology.md](docs/methodology.md).
+    * About 30 DOT lane records are attached to the generic centerline of a
+      divided street (LION layer `G`) rather than its carriageways, so they do not
+      reach the network. Another ~270 current records name a segment LION does
+      not have.
+    * LION lags street redesigns. Lane counts, width and truck routes can
+      describe a street as it was before DOT rebuilt it.
+* **Planning**: limits on the new-lane recommendations.
+    * Ridership is held fixed: the plan shows where today's Citi Bike riders
+      would move, not the new riders a lane would attract.
+    * The only cost of a new lane is its length. Whether it fits the street
+      (width, parking, bus lanes, loading) is not considered, so a corridor
+      is where riders would gain, not a design.
+    * Which of two parallel streets gets a lane can depend on the sample of
+      trips used. Read a corridor as "this street or the next one over".
+    * Lanes are picked greedily, one street at a time, so the plan is good
+      but not provably the best for its budget.
+
+## Setup
 
 ```
-uv venv && uv pip install -e . --group dev   # or: pip install -e . pytest 'ruff==0.16.3'
-python -m bike_network build
-pytest -q
-ruff format . && ruff check .
+uv venv && uv pip install -e . --group dev
+python -m bike_network build      # the street network and its costs
+python -m bike_network assign     # route the Citi Bike trips (downloads ~8 GB once)
+python -m bike_network corridors  # plan the new lanes
+python -m bike_network viz        # export the map
+python -m http.server -d data/build/viz
 ```
 
-`build` downloads the inputs into `data/raw/` once, then writes
-`data/build/segments.parquet` (one row per LION segment, with geometry in
-EPSG:2263) and `data/build/edges.parquet` (one row per directed edge).
-
-`python -m bike_network viz` then exports the network to `data/build/viz/`
-for the edge-cost viewer (`viz/index.html`): every street drawn once per
-direction, colored by cost, with a slider for each knob below. Serve that
-folder (`python -m http.server -d data/build/viz`) and open it. The viewer
-recomputes costs in the browser with `viz/cost.js`, which
-`tests/test_viz.py` holds to the Python model. Once `assign` has run, its Citi Bike
-trips mode shows routed trips a day per direction under the safest and the
-shortest routing, their difference, where the trip-km go by facility, and
-the busiest bike facilities.
-
-The published map is at **https://nikhilsaggi.github.io/bike-network/**.
-`python -m bike_network publish` puts the exported folder there: it commits
-`data/build/viz/` as the whole of the `gh-pages` branch (one commit, no
-history, since it is build output) and force-pushes it, and GitHub Pages
-serves that branch. It refuses an export older than the checkout's viewer or
-than any build file it was made from, so run `viz` first. `--no-push` builds
-the branch without pushing it. A fork needs Pages turned on once, serving
-`gh-pages` from `/`.
-
-A push to `main` that changes only the viewer (`viz/index.html`,
-`viz/cost.js`) does not need any of that: the Pages workflow
-(`.github/workflows/pages.yml`) runs `python -m bike_network.pages refresh`,
-which puts the new page over the `data.json` already published. The export
-stamps its layout as `format` (`FORMAT` in `bike_network/viz.py`) and the page
-declares the one it reads (`DATA_FORMAT` in `viz/index.html`); bump both
-together when the viewer needs new data. When they differ from what is
-published, the workflow fails without publishing, and the site waits for a
-local `viz` and `publish`.
-
-## Routing Citi Bike trips
-
-`python -m bike_network assign` downloads Citi Bike's
-[trip data](https://s3.amazonaws.com/tripdata/index.html) for
-`DEMAND_YEAR` (2025; about 8 GB of monthly zips, each reduced once to
-station-to-station counts under `data/build/demand/`), snaps every station
-to the nearest node of the main network, and routes each trip on its
-cheapest route. It routes them again on the shortest legal route (riding
-at 1x wherever riding is allowed) as the baseline the safety cost has to
-beat, and writes `flows.parquet` (trips a year on each directed edge, both
-ways), `routes.parquet` (each station pair's route) and `stations.parquet`.
-
-Trips that start and end at the same station are loops with no route and
-are dropped; so are trips with no end station.
-
-## Calibration and new-lane candidates
-
-`python -m bike_network calibrate` re-routes the year's trips under a grid of
-the three main knobs (traffic weight, painted-lane share, walking factor) and
-scores each against DOT's automated bike counters (about an hour; pass
-`--per-doubling`, `--painted` or `--walk-factor` lists to run a smaller grid,
-whose results merge into `calibration.parquet`). How the score works, what
-it decided and what it could not are in
-**[docs/methodology.md](docs/methodology.md)**.
-
-`python -m bike_network candidates` scores every block that could take a
-protected facility (a lane where there is none, a contraflow lane against
-one-way traffic on an undivided street, a riding path on a walkway) by the cost a year of Citi
-Bike trips would save if it had one, including trips that avoid the block
-today. It scores two independent samples of 40,000 station pairs and reports
-how far their rankings agree, then writes `candidates.parquet`.
-
-One block at a time misses corridors: a block of mixed traffic between two
-others is worth little on its own, because the detour to a parallel lane
-still wins. `python -m bike_network corridors` scores whole stretches
-instead: consecutive blocks of one street in one direction, which a trip can
-join at any intersection and leave at any later one. It then spends a budget
-of new protected lane greedily (`--budget-km`, default 80, about NYC's yearly
-Streets Plan target). Each round builds the stretches that save the most
-cost per new meter, re-routes, and scores every street again, about 90
-seconds a round. It writes `corridors.parquet` (one row per corridor, in
-build order), `corridor_edges.parquet` (its blocks) and `corridors.json` (the
-plan's totals), and `viz` then adds a New corridors view to the map. The
-method and what it found:
-[docs/methodology.md](docs/methodology.md#7-where-new-lanes-would-help).
-
-The plan is picked on a sample, so `corridors` ends by running
-`python -m bike_network effect` (about a minute, and runnable alone): every
-one of the year's trips routed again with the plan built, set beside
-today's routes. It writes `plan_flows.parquet` (trips a year on each
-directed edge, as `flows.parquet`), `plan_routes.parquet` (each station
-pair's route), `plan_stations.parquet` (each station's trips and the share
-of their cost saved), `plan_examples.parquet` (one real trip per corridor,
-both routes) and `plan_effect.json` (the totals). The map's New corridors
-mode then has two more views: Where riders go (trips a day with the plan
-minus today; the facility mix
-of the trip-km; the streets riders move to and leave; and the example trips
-drawn both ways, sorted by the cost they save, leaving out short trips,
-trips that keep today's route, and any that mostly repeats one above it) and Who gains (each station by the share of
-its trips' cost saved). The trips are held fixed:
-the same riders between the same stations, so the views show where they
-would ride, not how many more would.
-
-## Cost model
-
-Each directed edge costs `length_m * factor`. A bike either rides the edge or
-is walked on the sidewalk, whichever is cheaper:
-
-- **Riding** is legal with the flow of traffic, and in any direction DOT has a
-  bike facility for (contraflow lanes, two-way greenways).
-  `factor = 1 + exposure * traffic_penalty + roughness`.
-- **Walking** the bike is legal on any sidewalk in either direction:
-  `factor = 8` (12 on a step street). Vehicle-only roads have no walk edge.
-
-| Facility in the direction of travel | exposure |
-|---|---|
-| Protected, greenway, boardwalk, off-street link | 0 |
-| Painted (conventional, buffered, curbside) | 0.3 |
-| Shared, signed route, wide parking lane, none | 1 |
-
-`traffic_penalty` is 0 where no car may go. Otherwise it is 0.2, plus 1.0
-for each doubling of traffic above a quiet street's 1,600 vehicles a day,
-plus 0.15 per 5 mph over 25, plus 0.2 / 0.3 / 0.5 for a limited-local /
-local / through truck route. Traffic is the volume in the rider's direction
-(the oncoming stream, in a contraflow lane).
-
-Where the rider shares the lane with cars (no facility, or sharrows), the
-penalty is scaled by room to be passed: 12 ft over the feet of roadway in
-the rider's direction (curb to curb less 8 ft per parking lane, halved on a
-two-way street, held to 7-24 ft), but room never takes more than 1.25 off.
-A one-way street with two lanes is easier to share than a two-way street of
-the same width; a wide arterial stays an arterial. A painted lane is the
-rider's room, so paint keeps its 0.3 whatever the width.
-
-`roughness` is 0.05 for each point DOT's pavement rating falls below good
-(8 of 10), and 0 on an unrated block. All of these numbers live in
-`bike_network/config.py`.
-
-The traffic weight and the walking factor are calibrated against DOT's bike
-counters; the room and pavement terms were checked against them (the
-counters score them as well as or slightly better than leaving them out);
-the rest are judgment. **[docs/methodology.md](docs/methodology.md)**
-sets out how each weight was chosen and the evidence for it.
-
-## Traffic volume
-
-DOT has counted traffic on under 1% of car directions, so `build` estimates
-the rest: a gradient-boosted model of daily volume per direction, trained on
-DOT's [Automated Traffic Volume Counts](https://data.cityofnewyork.us/Transportation/Automated-Traffic-Volume-Counts/7ym2-wayt)
-since 2010 and fed what LION records on every street (width, travel lanes,
-one-way, truck route, snow-plough priority, borough, display level). Each
-count's compass direction is matched to the segment's own bearing.
-`python -m bike_network traffic` scores it on streets held out of the fit:
-
-| Predictor of log daily volume | R² | Rank correlation | Typical error |
-|---|---|---|---|
-| Lanes per direction alone | 0.32 | 0.55 | 1.62x |
-| The lane-count rule it replaced | 0.39 | 0.67 | 1.52x |
-| Volume model | 0.47 | 0.73 | 1.47x |
-
-The counted streets skew busy and the median count dates from 2016, so the
-estimate ranks streets better than it measures any one of them.
-
-## Known gaps
-
-- DOT's bike routes and LION have drifted apart in segment ids. Separated
-  paths DOT has never recorded take their directions from LION (586 blocks);
-  see [docs/methodology.md](docs/methodology.md).
-- About 30 DOT lane records are attached to the generic centerline of a
-  divided street (LION layer `G`) rather than its carriageways, so they do not
-  reach the network. Another ~270 current records name a segment LION does
-  not have.
-- Staten Island and Governors Island are their own components: ferries are
-  not ridden, so they are left out.
-- LION lags street redesigns. Lane counts, width and truck routes can
-  describe a street as it was before DOT rebuilt it, and the traffic model
-  inherits that: a road diet keeps its old estimate. The one case handled is
-  DOT's shared streets (Broadway in Midtown and the Flatiron, Berry Street):
-  a `Shared` facility offered against one-way car traffic marks one, and it
-  is priced as a quiet street.
-- No turn or intersection costs yet.
+The other commands, what each step writes, testing and publishing the site
+are in [docs/development.md](docs/development.md).
